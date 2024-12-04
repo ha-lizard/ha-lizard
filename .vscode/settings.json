@@ -1,0 +1,62 @@
+{
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.trimAutoWhitespace": true,
+  "editor.rulers": [80],
+  "editor.formatOnSave": true,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.autoSave": "onWindowChange",
+
+  "[shellscript]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "files.eol": "\n",
+    "editor.formatOnSave": true
+  },
+
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.defaultFormatter": "ms-python.autopep8",
+    "editor.formatOnSave": true
+  },
+
+  "[markdown]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  },
+
+  "[git-commit]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  },
+
+  "cSpell.words": [
+    "addsign",
+    "autoselect",
+    "Autoselect",
+    "createrepo",
+    "elif",
+    "github",
+    "GITHUB",
+    "gnupg",
+    "hyperconverged",
+    "iscsi",
+    "mailx",
+    "Massimo",
+    "noninteractive",
+    "pipefail",
+    "rpmbuild",
+    "rpmmacros",
+    "RPMS",
+    "rpmsign",
+    "sendmail",
+    "shellcheck",
+    "smartctl",
+    "SRPM",
+    "SRPMS",
+    "XAPI"
+  ],
+  "ansible.python.interpreterPath": "/bin/python3"
+}

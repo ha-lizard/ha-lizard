@@ -1,0 +1,46 @@
+# Root EditorConfig file
+root = true
+
+# General settings for all files
+[*]
+charset = utf-8                 # Use UTF-8 encoding
+end_of_line = lf                # Use LF for line endings (Unix-style)
+insert_final_newline = true     # Ensure the file ends with a newline
+trim_trailing_whitespace = true # Remove trailing whitespace on save
+
+# Specific settings for Bash scripts (without extensions)
+[src/scripts/*]
+indent_style = space            # Use spaces for indentation (Google Shell Guide recommends 2 spaces)
+indent_size = 2                 # Google Shell Guide uses 2 spaces for indentation
+insert_final_newline = true     # Ensure a final newline for scripts
+trim_trailing_whitespace = true # Remove trailing whitespace
+
+# Bash shell style settings following Google Shell Style Guide:
+# - No tabs, always use 2 spaces for indentation.
+# - Place opening brace `{` on the same line as the function definition or loop.
+# - Use lowercase with underscores for variable names.
+# - Use `"$@"` instead of "$*" in loops or function calls to preserve arguments.
+# - Use `[[` for condition tests instead of `[`, and quote variables to prevent word splitting.
+
+# Specific settings for Python scripts
+[*.py]
+indent_style = space            # Use spaces for indentation (PEP 8 recommends 4 spaces)
+indent_size = 4                 # Standard Python indentation (PEP 8: 4 spaces)
+insert_final_newline = true     # Ensure a final newline
+trim_trailing_whitespace = true # Remove trailing whitespace
+max_line_length = 79            # PEP 8: Limit to 79 characters per line
+quote_type = single             # Use single quotes for string literals (Python convention)
+
+# Settings for Markdown files
+[*.md]
+max_line_length = 80            # Wrap Markdown files at 80 characters
+trim_trailing_whitespace = false # Allow trailing whitespace (for Markdown formatting)
+
+# Settings for YAML files
+[*.yml]
+indent_style = space            # Use spaces for indentation
+indent_size = 2                 # YAML convention is 2 spaces
+
+# Git configuration and related files
+[*.gitignore]
+trim_trailing_whitespace = false

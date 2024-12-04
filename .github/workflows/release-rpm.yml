@@ -1,0 +1,128 @@
+name: Build, Sign, and Publish SRPM and RPM on Release
+
+on:
+  release:
+    types: [published] # Trigger when a new release is published
+
+jobs:
+  build-rpm:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ACTIONS_RUNNER_DEBUG: false
+
+    steps:
+      # Step 1: Checkout the code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for commit count
+
+      # Step 2: Set up the build environment
+      - name: Set Up Build Environment
+        run: |
+          set -euo pipefail
+
+          # Install required dependencies
+          sudo apt update
+          sudo DEBIAN_FRONTEND=noninteractive apt install -y rpm gnupg gh
+
+          # Create rpmbuild directory structure
+          echo "Setting up rpmbuild directory structure"
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+          # Move spec files into the build structure
+          cp -R rpm/SPECS/*.spec ~/rpmbuild/SPECS/
+
+          # Create the source archive
+          cd src
+          tar --exclude='./.git' --exclude='./rpm/SPECS' -czf ~/rpmbuild/SOURCES/ha-lizard.tar.gz .
+          cd ..
+
+      # Step 3: Extract version and release information
+      - name: Extract Version and Release
+        id: versioning
+        run: |
+          set -euo pipefail
+
+          # Get the release tag name from GitHub event data
+          TAG_NAME="${{ github.event.release.tag_name }}"
+
+          # Extract the version (numeric part before any dash)
+          VERSION=$(echo "$TAG_NAME" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+)(-.*)?$/\1/')
+
+          # Initialize prerelease variable
+          PRERELEASE=""
+
+          # Check if the tag contains prerelease markers or if the release is marked as a prerelease
+          if [[ "$TAG_NAME" =~ -(rc|RC|beta|BETA) ]]; then
+            PRERELEASE=$(echo "$TAG_NAME" | sed -E 's/^.*-(rc|RC|beta|BETA).*$/\1/')
+          elif [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
+            PRERELEASE="rc"
+          fi
+
+          # Get the number of commits to use as the release number
+          RELEASE_NUMBER=$(git rev-list --count HEAD)
+
+          # Combine the prerelease, and release number into the final RELEASE
+          if [ -n "$PRERELEASE" ]; then
+            RELEASE="${PRERELEASE}${RELEASE_NUMBER}"
+          else
+            RELEASE="${RELEASE_NUMBER}"
+          fi
+
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "RELEASE=${RELEASE}" >> $GITHUB_ENV
+
+      # Step 4: Build RPM package
+      - name: Build SRPM and RPM Package
+        run: |
+          set -euo pipefail
+
+          # Replace placeholders in spec files with actual version and release
+          sed -i "s/__VERSION__/${VERSION}/g" ~/rpmbuild/SPECS/*.spec
+          sed -i "s/__RELEASE__/${RELEASE}/g" ~/rpmbuild/SPECS/*.spec
+
+          # Build the RPM package
+          rpmbuild -ba ~/rpmbuild/SPECS/*.spec
+
+      # Step 5: Import GPG Key
+      - name: Import GPG Key
+        run: |
+          set -euo pipefail
+
+          # Import the private key from secrets
+          echo "Importing GPG key"
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+
+          # Ensure the trust level is set to ultimate for the imported key
+          echo "Setting trust level for GPG key"
+          echo -e "5\ny\n" | gpg --batch --command-fd 0 --edit-key "${{ secrets.GPG_KEY_ID }}" trust
+
+      # Step 6: Sign RPMs
+      - name: Sign RPMs
+        run: |
+          set -euo pipefail
+
+          # Configure GPG_TTY to avoid warnings
+          export GPG_TTY=$(tty) || true
+
+          # Configure RPM to use the GPG key
+          echo "%_signature gpg" >> ~/.rpmmacros
+          echo "%_gpg_name ${{ secrets.GPG_KEY_ID }}" >> ~/.rpmmacros
+
+          # Sign all RPMs
+          find ~/rpmbuild/RPMS/ -name "*.rpm" -exec rpmsign --addsign {} \;
+          find ~/rpmbuild/SRPMS/ -name "*.rpm" -exec rpmsign --addsign {} \;
+
+      # Step 7: Upload RPM and SRPM to the GitHub Release
+      - name: Upload SRPM and RPM to GitHub Release
+        run: |
+          set -euo pipefail
+
+          # Upload binary RPMs
+          gh release upload "${{ github.event.release.tag_name }}" ~/rpmbuild/RPMS/**/*.rpm --clobber
+
+          # Upload source RPM
+          gh release upload "${{ github.event.release.tag_name }}" ~/rpmbuild/SRPMS/*.src.rpm --clobber
