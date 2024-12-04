@@ -1,5 +1,5 @@
-%define version      __VERSION__
-%define release      __RELEASE__
+%define version      2.4.4
+%define release      123
 %define buildarch    noarch
 %define name         ha-lizard
 
@@ -151,9 +151,7 @@ fi
 
 # Documentation
 # TODO: use doc macro to handle the documentation files
-%doc README.md LICENSE doc/COPYING doc/HELPFILE doc/INSTALL doc/RELEASE
-%doc %{_sysconfdir}/ha-lizard/LICENSE
-%doc %{_sysconfdir}/ha-lizard/README.md
+%doc doc/COPYING doc/HELPFILE doc/INSTALL doc/RELEASE
 %doc %{_sysconfdir}/ha-lizard/doc/COPYING
 %doc %{_sysconfdir}/ha-lizard/doc/HELPFILE
 %doc %{_sysconfdir}/ha-lizard/doc/INSTALL
