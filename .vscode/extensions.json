@@ -1,0 +1,13 @@
+{
+  "recommendations": [
+    "aaron-bond.better-comments",
+    "coolbear.systemd-unit-file",
+    "davidanson.vscode-markdownlint",
+    "editorconfig.editorconfig",
+    "foxundermoon.shell-format",
+    "gruntfuggly.todo-tree",
+    "ms-python.autopep8",
+    "streetsidesoftware.code-spell-checker",
+    "timonwong.shellcheck"
+  ]
+}
