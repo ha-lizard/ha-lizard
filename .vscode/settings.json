@@ -1,55 +1,53 @@
 {
-    "editor.tabSize": 2,                         // Use 2 spaces for indentation (for shell scripts)
-    "editor.insertSpaces": true,                 // Always use spaces instead of tabs
-    "editor.trimAutoWhitespace": true,           // Remove trailing spaces on save
-    "editor.rulers": [80],                       // Set a line ruler at 80 characters for readability
-    "editor.formatOnSave": true,                 // Automatically format on save
-    "files.trimTrailingWhitespace": true,        // Trim trailing whitespace when saving files
-    "files.insertFinalNewline": true,            // Ensure file ends with a newline
-    "files.autoSave": "onWindowChange",          // Auto-save when switching windows
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.trimAutoWhitespace": true,
+  "editor.rulers": [80],
+  "editor.formatOnSave": true,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.autoSave": "onWindowChange",
 
-    // Specific settings for Bash scripts
-    "[shellscript]": {
-      "editor.tabSize": 2,                      // Use 2 spaces for shell script indentation (following Google Shell Guide)
-      "editor.insertSpaces": true,               // Ensure spaces are used instead of tabs
-      "files.eol": "\n",                         // Use LF line endings for shell scripts
-      "editor.formatOnSave": true                // Format shell scripts on save
-    },
+  "[shellscript]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "files.eol": "\n",
+    "editor.formatOnSave": true
+  },
 
-    // Specific settings for Python scripts
-    "[python]": {
-      "editor.tabSize": 4,                      // Use 4 spaces for Python indentation (PEP 8)
-      "editor.insertSpaces": true,               // Ensure spaces are used instead of tabs
-      "editor.defaultFormatter": "ms-python.autopep8",  // Use autopep8 for Python formatting
-      "editor.formatOnSave": true                // Format Python scripts on save},
-    },
+  "[python]": {
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.defaultFormatter": "ms-python.autopep8",
+    "editor.formatOnSave": true
+  },
 
-    // Specific settings for Markdown files
-    "[markdown]": {
-      "editor.tabSize": 2,                      // Use 2 spaces for Markdown indentation
-      "editor.insertSpaces": true                // Ensure spaces are used instead of tabs
-    },
+  "[markdown]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  },
 
-    // Settings for Git-related files like .gitignore
-    "[git-commit]": {
-      "editor.tabSize": 2,                      // Use 2 spaces for Git-related files
-      "editor.insertSpaces": true                // Ensure spaces are used instead of tabs
-    },
-    "cSpell.words": [
-      "addsign",
-      "createrepo",
-      "elif",
-      "github",
-      "GITHUB",
-      "gnupg",
-      "noninteractive",
-      "pipefail",
-      "rpmbuild",
-      "rpmmacros",
-      "RPMS",
-      "rpmsign",
-      "shellcheck",
-      "SRPM",
-      "SRPMS"
-    ]
+  "[git-commit]": {
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true
+  },
+
+  "cSpell.words": [
+    "addsign",
+    "createrepo",
+    "elif",
+    "github",
+    "GITHUB",
+    "gnupg",
+    "noninteractive",
+    "pipefail",
+    "rpmbuild",
+    "rpmmacros",
+    "RPMS",
+    "rpmsign",
+    "shellcheck",
+    "SRPM",
+    "SRPMS"
+  ],
+  "ansible.python.interpreterPath": "/bin/python3"
 }
