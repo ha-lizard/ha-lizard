@@ -1,0 +1,158 @@
+#!/bin/bash
+#
+# 
+# chkconfig: 2345 99 01
+# description: ha-lizard watchdog script
+# processname: ha-lizard-watchdog
+
+# Function library
+. /etc/init.d/functions
+
+VERSION="2.1"
+WATCH_INTERVAL="10"
+PROCESS_NAME="ha-lizard"
+PROC_NAME=${PROCESS_NAME}-watchdog
+PID_FILE=/var/run/${PROC_NAME}.pid
+LOCK_FILE=/var/lock/subsys/${PROC_NAME}
+GLOBAL_CONF=/etc/ha-lizard/ha-lizard.pool.conf
+OVERIDE_CONF=/etc/ha-lizard/ha-lizard.init
+LIB_FUNCTIONS=/etc/ha-lizard/ha-lizard.func
+
+check () {
+	source ${LIB_FUNCTIONS}
+	source ${GLOBAL_CONF}
+	source ${OVERIDE_CONF}
+
+
+	while :
+	do
+		sleep $WATCH_INTERVAL
+		status $PROCESS_NAME &> /dev/null 
+		RETVAL=$?
+		case $RETVAL in
+		
+		0)
+			log "$PROCESS_NAME Watchdog: $PROCESS_NAME running - OK "
+			;;
+		1)	
+			log "$PROCESS_NAME Watchdog: $PROCESS_NAME is dead but pid file exists, starting $PROCESS_NAME"
+			/etc/init.d/$PROCESS_NAME start #service $PROCESS_NAME start 
+			;;
+		2)
+			log "$PROCESS_NAME Watchdog: $PROCESS_NAME is dead but subsys locked, starting $PROCESS_NAME"
+			/etc/init.d/$PROCESS_NAME start #service $PROCESS_NAME start
+			;;
+		3)
+			log "$PROCESS_NAME Watchdog: $PROCESS_NAME is stopped, starting $PROCESS_NAME"
+			/etc/init.d/$PROCESS_NAME start #service $PROCESS_NAME start
+			;;
+		esac
+	done
+}
+
+start()
+{
+	if  [ -e $PID_FILE ]
+	then
+		for i in `/bin/cat $PID_FILE` # This can be an array
+		do
+			kill -0 $i 2> /dev/null
+			RETVAL=$?
+			if [ $RETVAL -eq 0 ]
+			then
+				failure $"$PROC_NAME already running: $CURRENT_PID startup failed"
+				echo $"$PROC_NAME already running: $CURRENT_PID startup failed"
+				exit 1
+			fi
+		done
+	fi
+
+	check &
+	if [ $? = 0 ]
+	then
+		/bin/touch $LOCK_FILE 
+		/bin/touch $PID_FILE
+		echo `pidof -x $PROC_NAME` > $PID_FILE
+		echo -n $"Starting $PROC_NAME: "
+		success
+	else
+		failure $"$PROC_NAME startup"
+		echo $"Failed to start $PROC_NAME"
+		killproc $PROC_NAME 2>/dev/null
+		rm -f $LOCK_FILE 
+		rm -f $PIDFILE
+		exit 1
+	fi
+	echo
+}
+
+stop()
+{
+	echo -n $"Stopping $PROC_NAME: "
+	killproc $PROC_NAME 2>/dev/null
+	RETVAL=$?
+	if [ $RETVAL = 0 ]
+	then
+		success $"$PROC_NAME stop"
+		rm -f $LOCK_FILE 
+		rm -f $PID_FILE
+	else
+		warning $"$PROC_NAME stop"
+		echo $"Error stopping $PROC_NAME"
+		exit 1
+	fi
+	echo
+}
+
+this_status ()
+{
+	if  [ -e $PID_FILE ]
+	then
+		for i in `/bin/cat $PID_FILE` # This can be an array
+		do
+			kill -0 $i 2> /dev/null
+			RETVAL=$?
+			if [ $RETVAL -eq 0 ]
+			then
+				success $"$PROC_NAME running: $i"
+				echo $"$PROC_NAME running: $i"
+				exit 0
+			fi
+		done
+
+		warning $"$PROC_NAME is dead and /var/run pid file exists"
+		echo "$PROC_NAME is dead and /var/run pid file exists"
+		exit 1
+	elif [ -e $LOCK_FILE ]
+	then
+		warning $"$PROC_NAME is dead and /var/lock lock file exists"
+		echo "$PROC_NAME is dead and /var/lock lock file exists"
+		exit 2
+	else
+		failure $"$PROC_NAME is not running"
+		echo "$PROC_NAME is not running"
+		exit 3
+	fi
+} #End status
+
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	status)
+		this_status
+		;;
+	restart)
+		stop
+		start
+		;;
+	 *)
+		echo $"Usage: $0 {start|stop|restart|status}"
+		exit 1
+		;;
+esac
+exit 0

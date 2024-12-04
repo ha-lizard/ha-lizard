@@ -1,0 +1,82 @@
+#!/bin/bash
+
+PROC_NAME=ha-lizard
+WATCHDOG=/etc/init.d/${PROC_NAME}-watchdog
+PID_FILE=/var/run/${PROC_NAME}.pid
+LOCK_FILE=/var/lock/subsys/${PROC_NAME}
+EXECUTE=/etc/ha-lizard/ha-lizard.sh
+GLOBAL_CONF=/etc/ha-lizard/ha-lizard.pool.conf
+OVERIDE_CONF=/etc/ha-lizard/ha-lizard.init
+LIB_FUNCTIONS=/etc/ha-lizard/ha-lizard.func
+source ${GLOBAL_CONF}
+source ${OVERIDE_CONF}
+source ${LIB_FUNCTIONS}
+
+
+######################################
+## Don't allow multiple instances
+######################################
+EXEC_NAME=$(basename $0)
+INSTANCES=$(pgrep ${EXEC_NAME})
+NUM_INSTANCES=$(echo "$INSTANCES" | wc -l)
+if [ "${NUM_INSTANCES}" -gt 1 ]
+then
+	echo "Another instance is running"
+	exit 1
+fi
+
+#######################################
+## Redirect terminal to log and store
+## child processes
+#######################################
+SPAWNED_PROCS=()
+exec 1> >(logger -t ha-lizard-NOTICE-$0) && SPAWNED_PROCS+=($!) && SPAWNED_PROCS+=($(pgrep -P $!))
+exec 2> >(logger -t ha-lizard-ERROR-$0)  && SPAWNED_PROCS+=($!) && SPAWNED_PROCS+=($(pgrep -P $!))
+
+
+if [ $1 ]
+then
+	echo ${SPAWNED_PROCS[@]} > $1 #Arg1 expected to be path to pid file
+fi
+
+
+COUNT=0
+while :
+do
+	EXECUTE_ID=$(basename ${EXECUTE})
+	CHECK_PID=$(pidof -x $EXECUTE_ID)
+	CHECK_PID_TR=`echo $CHECK_PID | tr -d [[:space:]]`
+	if [[ $CHECK_PID_TR ]] && [[ -a $LOCK_FILE ]]
+	then
+		COUNT=$((COUNT + 1))
+		log "$PROC_NAME already running: Attempt $COUNT on PIDS: $CHECK_PID"
+		if [ $COUNT -gt "$MONITOR_MAX_STARTS" ]
+		then
+			email "$PROC_NAME failed to spawn new instance after $COUNT attmepts. MAX_STARTS is set to $MONITOR_MAX_STARTS. Check Host: $HOSTNAME for possible hung process"
+			log "$PROC_NAME failed to spawn new instance after $COUNT attmepts. Check $HOSTNAME for possible hung process"
+			if [ $MONITOR_KILLALL = "1" ]
+			then
+				log "MONITOR has reached configured threshhold - $MONITOR_MAX_STARTS - MONITOR_KILLALL is enabled. - attempting to kill all existing processes"
+				killall -e $EXECUTE_ID
+				if [ $? = 0 ]
+				then
+					log "Successfully killed all instances of $EXECUTE_ID"
+				else
+					log "Failed to kill all instances of $EXECUTE_ID"
+					email "Host: $HOSTNAME: MONITOR has reached configured threshhold - $MONITOR_MAX_STARTS - MONITOR_KILLALL is enabled. - failed to kill all existing processes"
+				fi
+			fi
+		fi
+
+		sleep $MONITOR_SCANRATE
+		continue
+
+	else
+		COUNT=0
+		log "Spawning new instance of $PROC_NAME"
+		check_logger_processes
+		$EXECUTE &
+		sleep $MONITOR_DELAY
+	fi
+done
+

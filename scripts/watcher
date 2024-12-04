@@ -1,0 +1,25 @@
+#!/bin/bash
+if [ ! $1 ] || [ ! $2 ] || [ ! $3 ]
+then
+
+	echo "Process Watcher - Kill Processes that run longer than the passed in Timeout
+Usage watcher <command name> <PID> <timeout seconds> <optional log label>
+
+Example: <watcher grep 2233 5> will check for the grep command running on PID 2233
+If it has been running for more than 5 seconds, PID 2233 will be killed
+When calling watcher from another script, background it with <watcher arg1 arg2 arg3 &>
+to avoid delaying the execution of the calling script"
+exit 1
+fi
+
+PROC_PID=$2
+sleep $3 
+(
+VALIDATE_PROC_PID=`ps -p $PROC_PID | grep "$1" | awk '{ print $4; }'`
+if [ $VALIDATE_PROC_PID ]
+then
+        kill $PROC_PID
+        logger -t watcher:$4 "Command: $1 has reached maximum allowable time of $3 SECONDS. KILLING PID: $PROC_PID , PID_NAME: $VALIDATE_PROC_PID"
+fi
+)  &
+

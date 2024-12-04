@@ -1,0 +1,5 @@
+echo "This will display a real time log session for ha-lizard"
+echo "Control + C to exit."
+sleep 2
+clear
+tail -f -s .5 /var/log/user.log | grep ha-lizard

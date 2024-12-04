@@ -1,0 +1,194 @@
+#!/bin/bash
+#
+# 
+# chkconfig: 2345 99 01
+# description: ha-lizard init script version 2.1 December 2016
+# processname: ha-lizard
+
+# Function library
+. /etc/init.d/functions
+
+PROC_NAME=ha-lizard
+WATCHDOG=${PROC_NAME}-watchdog
+WATCHDOG_EXEC=/etc/init.d/${WATCHDOG}
+PID_FILE=/var/run/${PROC_NAME}.pid
+LOCK_FILE=/var/lock/subsys/${PROC_NAME}
+EXECUTE_NAME=ha-lizard.mon
+EXECUTE_STRING=/etc/ha-lizard/init/${EXECUTE_NAME}
+EXECUTE_PID_FILE=/var/run/${EXECUTE_NAME}.pid
+GLOBAL_CONF=/etc/ha-lizard/ha-lizard.pool.conf
+OVERIDE_CONF=/etc/ha-lizard/ha-lizard.init
+LIB_FUNCTIONS=/etc/ha-lizard/ha-lizard.func
+CALLED_BY=$(ps -o comm= $PPID)
+source ${GLOBAL_CONF}
+source ${OVERIDE_CONF}
+
+################################
+## Function xapi_init_check
+## adapted from Xenserver
+################################
+function xapi_init_check()
+{
+	RETRY=0
+	logger -t "${PROG_NAME}-init" "Waiting for xapi initialize"
+	COUNT=0
+	while [ ${COUNT} -lt 300 ]
+	do
+		if [ -e "/var/run/xapi_init_complete.cookie" ]
+		then
+			logger -t "${PROG_NAME}-init" "XAPI initialized on attempt [ ${COUNT} ]"
+			return 0
+		fi
+		sleep 1
+		COUNT=$(( ${COUNT} + 1 ))
+	done
+
+	logger -t "${PROG_NAME}-init" "Timeout waiting for XAPI to initialize"
+	return 1
+}
+
+##################################################
+# On cold start or restart - clear iteration count
+# only for start, stop, restart - skip for status
+##################################################
+if [ "$1" != "status" ]
+then
+	if [ -f $MAIL_SPOOL/count ]
+	then
+		> $MAIL_SPOOL/count
+		echo 0 > $MAIL_SPOOL/count 2> /dev/null
+	else
+		mkdir $MAIL_SPOOL
+		> $MAIL_SPOOL/count
+		echo 0 > $MAIL_SPOOL/count 2> /dev/null
+	fi
+fi
+
+start()
+{
+	xapi_init_check
+	RETVAL=$?
+	if [ $RETVAL -ne 0 ]
+	then
+		failure $"XAPI required to start"
+		echo $"XAPI required to start"
+		exit 1 
+	fi
+
+	if  [ -e $PID_FILE ]
+	then
+		kill -0 $(cat $PID_FILE) &> /dev/null
+		RETVAL=$?
+		if [ $RETVAL -eq 0 ]
+		then
+			failure $"$PROC_NAME already running: $CURRENT_PID startup failed"
+			echo $"$PROC_NAME already running: $CURRENT_PID startup failed"
+			exit 1
+		fi
+	fi
+
+	nohup ${EXECUTE_STRING} ${EXECUTE_PID_FILE} &>/dev/null &
+	RETVAL=$?
+	if [ $RETVAL = 0 ]
+	then
+		/bin/touch $LOCK_FILE 
+		/bin/touch $PID_FILE
+		echo $(pgrep -of $EXECUTE_STRING) > $PID_FILE
+		if [[ $WATCHDOG != $CALLED_BY* ]]
+		then
+			echo -n $"Starting $PROC_NAME: "
+			success 
+			echo
+		fi
+
+		WATCHDOG_STATUS=$($WATCHDOG_EXEC status)
+		WATCHDOG_STATUS_RESULT=$?
+		if [ $WATCHDOG_STATUS_RESULT -ne 0 ]
+		then
+			$WATCHDOG_EXEC start
+		fi
+		exit 0
+	else
+		warning $"$PROC_NAME start"
+		echo $"Error starting $PROC_NAME"
+		echo
+		rm -f $LOCK_FILE
+		rm -f $PID_FILE
+		exit 1
+	fi
+} #End start
+
+stop()
+{
+	echo -n $"Stopping $PROC_NAME: "
+	killproc $PROC_NAME 2>/dev/null            # Stop any active threads
+	RETVAL=$?
+	if [ $RETVAL -eq 0 ]
+	then
+		pkill $(basename $EXECUTE_STRING)  # Stop monitor
+		rm -f $LOCK_FILE &> /dev/null 
+		rm -f $PID_FILE &> /dev/null
+
+		if [ -e $EXECUTE_PID_FILE ]
+		then
+			kill $(cat $EXECUTE_PID_FILE) &> /dev/null # Stop monitor child processes
+			rm -f $EXECUTE_PID_FILE
+		fi
+
+		echo
+	else
+		warning $"$PROC_NAME stop"
+		echo $"Error stopping $PROC_NAME"
+		failure
+	fi
+} #End stop 
+
+status ()
+{
+	if  [ -e $PID_FILE ]
+	then
+		PID=$(cat $PID_FILE)
+		kill -0 $PID 2> /dev/null
+		RETVAL=$?
+		if [ $RETVAL -eq 0 ]
+		then
+			success $"$PROC_NAME running: $PID"
+			echo $"$PROC_NAME running: $PID"
+			exit 0
+		fi
+		
+		warning $"$PROC_NAME is dead and /var/run pid file exists"
+		echo "$PROC_NAME is dead and /var/run pid file exists"
+		exit 1
+	elif [ -e $LOCK_FILE ]
+	then
+		warning $"$PROC_NAME is dead and /var/lock lock file exists"
+		echo "$PROC_NAME is dead and /var/lock lock file exists"
+		exit 2
+	else
+		failure $"$PROC_NAME is not running"
+		echo "$PROC_NAME is not running"
+		exit 3
+	fi
+} #End status
+
+case "$1" in
+	start)
+        	start
+        	;;
+	stop)
+        	stop
+        	;;
+	status)
+		status
+		;;
+	restart)
+		stop
+		start
+		;;
+	 *)
+        	echo $"Usage: $0 {start|stop|restart|status|}"
+        	exit 1
+		;;
+esac
+exit 0

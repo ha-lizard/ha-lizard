@@ -1,0 +1,32 @@
+##############################
+# Ha-Lizard Initialization
+# DO NOT MODIFY
+##############################
+source /etc/ha-lizard/ha-lizard.conf
+VERSION="2.4.0"
+PROG_NAME=ha-lizard
+ALERT_HEADER="HA-Lizard"
+CAT=/bin/cat
+AWK=/bin/awk
+ECHO=/bin/echo
+TIMEOUT=/etc/ha-lizard/scripts/timeout
+XE_PATH=/usr/bin/xe
+XE=xe_wrapper
+LOGGER=/bin/logger
+WATCH_XE="/etc/ha-lizard/scripts/watcher xe $! $XE_TIMEOUT ha-lizard &"
+HOST=`hostname`
+RESET_VDI=/opt/xensource/sm/resetvdis.py
+STATE_PATH='/etc/ha-lizard/state'
+MAIL=/etc/ha-lizard/scripts/email_alert.py
+GLOBAL_CONF=/etc/ha-lizard/ha-lizard.pool.conf
+GLOBAL_CONF_TMP=/tmp/ha-lizard.temp.conf
+CLI_TOOL=/etc/ha-lizard/scripts/ha-cfg
+API_INIT=/etc/init.d/xapi
+INSTALL_STATS=/etc/ha-lizard/scripts/post_version.py
+MAIL_SPOOL=/dev/shm/ha-lizard-mail
+XL_EXEC=$(which xl)
+LIST_DOMAINS=$(which list_domains 2> /dev/null)
+LIST_DOMAINS=${LIST_DOMAINS:-"/opt/xensource/bin/list_domains"}
+HOST_IS_SLAVE=/etc/ha-lizard/scripts/host_is_slave
+HOME_POOL_PARAM_KEY="home-pool"
+CHECK_DISK=/etc/ha-lizard/scripts/check_disk_smart_status
