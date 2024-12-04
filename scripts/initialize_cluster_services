@@ -1,0 +1,38 @@
+#!/bin/bash
+if [ ! -e /usr/bin/iscsi-cfg ]
+then
+	echo "Host is not part of an HA-Lizard cluster. exiting..."
+	exit 0
+fi
+
+
+declare -a AUTO_START_TRUE=(ha-lizard-watchdog ha-lizard iscsi-ha-watchdog iscsi-ha)
+declare -a AUTO_START_FALSE=(drbd tgtd)
+declare -a MAKE_SERVICE_RUNNING=(ha-lizard ha-lizard-watchdog iscsi-ha iscsi-ha-watchdog)
+
+for service in ${AUTO_START_TRUE[@]}
+do
+	chkconfig $service on
+done
+
+for service in ${AUTO_START_FALSE[@]}
+do
+	chkconfig $service off
+done
+
+for service in ${MAKE_SERVICE_RUNNING[@]}
+do
+	systemctl status $service &> /dev/null
+	RETVAL=$?
+	if [ $RETVAL -ne 0 ]
+	then
+		service $service start
+		sleep 1
+		systemctl status $service &> /dev/null
+		RETVAL=$?
+		if [ $RETVAL -ne 0 ]
+		then
+			service $service restart
+		fi
+	fi
+done

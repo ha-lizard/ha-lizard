@@ -1,0 +1,66 @@
+#!/bin/bash
+#################################################################################
+#                                                                               #
+# iscsi-ha - High Availability framework for iSCSI cluster used in conjunction  #
+# with XAPI based Xen Virtualization Environment (Xen Cloud Platform/XenServer) #
+# Copyright 2024 Salvatore Costantino                                           #
+# ha@ixi0.com                                                                   #
+#                                                                               #
+#                                                                               #
+#    iscsi-ha is free software: you can redistribute it and/or modify           #
+#    it under the terms of the GNU General Public License as published by       #
+#    the Free Software Foundation, either version 3 of the License, or          #
+#    (at your option) any later version.                                        #
+#                                                                               #
+#    iscsi-ha is distributed in the hope that it will be useful,                #
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of             #
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #
+#    GNU General Public License for more details.                               #
+#                                                                               #
+#    You should have received a copy of the GNU General Public License          #
+#    along with iscsi-ha.  If not, see <http://www.gnu.org/licenses/>.          #
+#                                                                               #
+#################################################################################
+
+ERROR_MESSAGE_LIST=""
+DEVICE_LIST=$(smartctl --scan | awk {'print $1'})
+
+for disk in ${DEVICE_LIST}
+do
+	echo "Found device $disk"
+done
+
+############################
+## Bit mask error messages
+############################
+BIT_0='Command line did not parse.'
+BIT_1='Device open failed, device did not return an IDENTIFY DEVICE structure, or device is in a low-power mode (see ´-n´ option above).'
+BIT_2='Some SMART or other ATA command to the disk failed, or there was a checksum error in a SMART data structure (see ´-b´ option above).'
+BIT_3='SMART status check returned "DISK FAILING".'
+BIT_4='We found prefail Attributes <= threshold.'
+BIT_5='SMART status check returned "DISK OK" but we found that some (usage or prefail) Attributes have been <= threshold at some time in the past.'
+BIT_6='The device error log contains records of errors.'
+BIT_7='The device self-test log contains records of errors.  [ATA only] Failed self-tests outdated by a newer successful extended self-test are ignored.'
+
+for device in ${DEVICE_LIST[@]}
+do
+	smartctl -q silent $device
+	RETVAL=$?
+	for ((i=0; i<8; i++))
+	do
+		THIS_BIT_VALUE=$((RETVAL & 2**i && 1))
+		if [ $THIS_BIT_VALUE -ne 0  -a $i -ne 0 -a $i -ne 1 ]
+		then
+			ERROR_MESSAGE="BIT_$i"
+			ERROR_MESSAGE_LIST+="${!ERROR_MESSAGE}\n"
+		fi
+		echo "$device: Bit $i = [ $THIS_BIT_VALUE ]"
+	done
+done
+
+if [ ${#ERROR_MESSAGE_LIST} -gt 0 ]
+then
+	## We have errors - log, print, email?
+	echo -e $ERROR_MESSAGE_LIST
+	exit 1
+fi

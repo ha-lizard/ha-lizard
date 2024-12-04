@@ -1,0 +1,64 @@
+##################################
+# HA-Lizard version 2.4.0
+##################################
+#################################################################################################
+#
+# HA-Lizard - Open Source High Availability Framework for Xen Cloud Platform and XenServer
+#
+# Copyright 2024 Salvatore Costantino
+# ha@ixi0.com
+#
+# This file is part of HA-Lizard.
+#
+#    HA-Lizard is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    HA-Lizard is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with HA-Lizard.  If not, see <http://www.gnu.org/licenses/>.
+#
+##################################################################################################
+Installing ( Replace <VERSION> with the release version noted at the top of this file )
+-	Copy the source tarball into a temporary location (ex.  /tmp/)
+
+-	Extract its contents and move into the extracted folder
+	tar .zxvf ha-lizard-<VERSION>.tgz
+
+-	Move into the scripts folder
+	cd ha-lizard-<VERSION>/scripts
+
+-	Run the installer interactively (prompts the user for some selections)
+	./install
+
+-	Optionally, the --nostart argument can be passed into the installer at runtime which will automatically install without user input AND not start services when done
+	./install --nostart
+
+The installer will install the default pool parameter set in the XAPI database. This step is only required on a single host.
+Once the installer is completed, HA and watchdog services will be started automatically unless the --nostart option is passed in. ex. "./install --nostart".
+Although these services are running, HA is disabled for the pool by default.
+HA can then be enabled via the command line tool <ha-cfg> to enable HA once installation has been completed on all hosts within a pool.
+
+
+Removing
+An uninstall script is provided. This will completely remove all components from the host.
+If uninstalling on a single host, skip the step which removes the settings stored in the XAPI database
+
+-	Move into the scripts folder
+	./uninstall
+	follow the steps to uninstall
+
+Upgrading
+- Stop the services with "service ha-lizard stop -w"
+- If changes have been made to /etc/ha-lizard/ha-lizard/conf (this is rare) then backup this file before upgrading and apply the same changes
+  to the new installation after the upgrade has been completed
+- Backup your current configuration using the CLI. "ha-cfg backup /path/to/file"
+- Run the installer for the new version - following the instructions above for "Installing". Do not have the installer install the default
+  parameter values as they will overwrite the previous configuration settings. If you accidentally destroy your configuration by having
+  the installer insert the default setting then restore the previously backed up configuration with "ha-cfg restore /path/to/file"
+

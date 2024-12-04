@@ -1,0 +1,270 @@
+#################################################################################################
+#
+# HA-Lizard - Open Source High Availability Framework for Xen Cloud Platform and XenServer
+#
+# Copyright 2024 Salvatore Costantino
+# ha@ixi0.com
+#
+# This file is part of HA-Lizard.
+#
+#    HA-Lizard is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    HA-Lizard is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with HA-Lizard.  If not, see <http://www.gnu.org/licenses/>.
+#
+##################################################################################################
+
+RELEASE NOTES:
+
+Initial Public Release - May 2013
+Version 1.6.40.2
+
+Version 1.6.40.4 - May 23, 2013
+- Minor cosmetic fixes
+- Corrected version number displayed when checking init script status
+- Updated some default setting values to more common values
+- Updated installation instructions
+- Fixed missing variable in XVM expect/tcl script
+
+Version 1.6.41 - June 27, 2013
+- Improved host failure handling. No longer mandatory to "forget host" in order to recover pool.
+  New logic will disbale a failed host in the pool so that attempts to start VMs on a failed host
+  will not be made. Previously it was mandatory to forget a failed host from the pool to ensure
+  that no attempt was made to start a failed VM on a failed host.
+- Added optional install counter to help us track the success of this project
+- Improved installer better deals with upgrades and correctly resolves relative path to itself.
+
+Version 1.6.41.4 - July 10, 2013
+- Bug Resolved - two node pools failed to fence due to safety mechanism which prevents fencing when a Master
+cannot reach any slaves.
+
+Version 1.6.42.3 - August 6, 2013
+- Validated support for XenServer 6.2
+- Updated ha-cfg tool to warn user that a reset is required when updating monitor timers
+- Updated ha-cfg tool to warn that FENCE_HOST_FORGET will be deprecated
+- Improved email alert handling prevents duplicate messages from being sent for a configurable timeout - default 60 minutes
+- Updated email alert message notifying user of failed or started VM. Message now includes the VM name-label AND UUID
+- Improved recovery from system crash which could erase configuration cache if crash occurs while updating configuration
+- FD leak caused interrupted system calls which closed TCP sockets used to check host status - Moved TCP socket connection from FD to alternate method resolving issue with email alerts warning of failure to connect to HTTP port of slaves.
+
+Version 1.7.2 - October 2013
+- Replaced email alert logic to prevent hanging when network or DNS is down
+- Suppress email alerts to avoid sending useless alerts while HA-Lizard initializes
+- New python driven MTA replaces mailx from previous version. Mailx is no longer required for alerts
+- Resolved issue when using OP_MODE=1 managing appliances, UUID array was not properly read
+
+Version 1.7.6 - December 2013 Patch Release
+- Resolved improperly handled exit status when fencing
+- Updated fencing logic. A slave must have quorum AND fence a master before promoting itself to pool master
+- A slave that fails to fence a master and does not achieve quorum will now self fence with a reboot. After reboot, slave's VMs will be off.
+- Master now only clears power states after successfully fencing slave. Power states unaltered when fencing is disabled, no quorum or fails.
+- Clear potential dangling logger processes that could occur on unclean exit or bad configuration parameters
+- Updated init script now manages logger processes
+- Added HA suspension for self fenced slaves which disables HA to protect a potential split pool.
+- CLI tool now warns when HA is suspended due to a fencing event
+- Added email alert notification for HA suspend event
+- Added script for re-enabling HA when HA-Lizard is suspended - see docs on events that can cause HA suspension
+- CLI tool improved to avoid creating orphaned processes while pool is broken and called from a slave
+
+Version 1.7.7 - May 2014
+- Optimized default installation paramters for 2-node setup. Default parameters will support a typical 2-node setup
+
+Version 1.7.8 - July 2014
+- CLI arguments for "set" are no longer case sensitive - ie. "ha-cfg set mail_on 0" OR "ha-cfg set MAil_oN 0" OR "ha-cfg set MAIL_ON 0" are all valid
+- Added validation to check whether XenServer HA is enabled  - will warn via log and email alert and disable HA-Lizard if XenServer HA is detected
+
+Version 1.8.5 - Feb 2015
+- preliminary validation against XenServer 6.5 completed
+- updated CLI insert function to skip over parameters that already exist in the DB to support completely automatic installation
+- updated installation script requires less user input
+- --nostart argument now accepted by installer
+- updated CLI for compatibility with noSAN installer
+- Bug Fix - improperly handled command substitution fixed
+- Updated email handler eliminates dependency on sendmail
+- Email debug and test option added to CLI for troubleshooting email settings
+- Additional email configuration parameters added to database and CLI <smtp_server, smtp_port, smtp_user, smtp_pass>
+
+Version 1.8.7 - May 2015
+- added Fujitsu iRMC fencing support - thank you Massimo for the contribution
+- added tab completion for ha-cfg CLI. Dynamic context aware completion resolves all possible valid inputs
+- display bug resolved which was displaying an error when get-vm-ha was called and VMs HA state was set to NULL
+- bug fix - installer was not properly setting permissions on fence methods
+
+Version 1.8.8 - September 2015
+- Improved pool state caching now updates state files while HA is disabled (and service is still running).
+  Resolves issues with pool changes not being cached while HA is disabled or maintenance operations underway
+- Reduced wait states while checking for failed hosts to respond. Recovery time is now reduced ~ XAPI_COUNT X 10 seconds.
+- Fixed get-vm-ha results which were not properly displayed when VM name label contained spaces
+- Improved behavior of configuration cache updates. Global settings are now updated on all pool members regardless of whether
+  HA is enabled. Old behavior only updated global configuration params while HA was enabled.
+
+Version 1.8.9 - June 2016
+- New logic introduced: when reboot_lone_host=1 in a 2-node pool, master will self fence with a reboot upon loss of management network AND slave not visible.
+  Self fencing allows the slave to assert primary storage role in the event that the storage link is active which would lock the master's DRBD role as Primary.
+  This logic helps in situations where STONITH should really be used (and isn't) to shutdown the master.
+- Bug Fix - When op_mode=1 (HA for appliances), setting a description for the appliance caused erroneous email alerts to be triggered. Resolved.
+
+Version 1.9.1 - October 2016
+- Improved logic for finding own hosts UUID. Previous logic depended on the host name-label matching the hostname. This caused problems in cases where users
+  modified the system hostname. Updated logic is no longer dependent on name-label and allows for freely modifying default system hostname.
+- Added master management link state tracking to allow for clean re-entry into a pool where the master has been fenced due to management link being DOWN.
+- New logic prevents master from entering maintenance mode while HA-Lizard is enabled
+- check_slave_status will now check manegement link state if failures are detected
+- bugfix - slave was tracking whether it was in maintenance mode and would re-enable itself upon detection causing reboots to abort.
+- bugfix - in certain conditions, HA could become disabled due to stale DB entry after fencing a master. Condition is now checked on success of promote_slave
+- Added shutdown of all VMs on a master that lost its management link
+- Improved speed of shutdown of master's VMs when the master has lost its management link.
+- Improved status display from CLI now displays status of HA and associated daemons.
+- bugfix - html body of email alerts were missing newline characters
+- Added pool status report to email alerts
+- Added validation of all VM ha-enabled state to ensure newly introduced VMs have a valid state set
+
+Version 1.9.1.1 - November 2016
+- bugfix - updated various functions to no longer depend on name-label=hostname.
+
+################################################
+## Begin XenServer Version 7+ support
+## Prior 1.x releases for XenServer 6.X only
+################################################
+
+Version 2.0 - July 2016
+- Updated version for compatibility with XenServer 7 dom0
+- Improved error capturing and logging
+- New init logic compatible with systemd requirements to enable operation on CentOS 7 style dom0
+- Updated CLI call to log
+- HA-Lizard init script updated to ALWAYS start watchdog on start.
+
+Version 2.1.0 - November 2016
+- Improved logic for finding own hosts UUID. Previous logic depended on the host name-label matching the hostname.
+  This caused problems in cases where users
+  modified the system hostname. Updated logic is no longer dependent on name-label and allows for freely modifying default system hostname.
+- Added master management link state tracking to allow for clean re-entry into a pool where the master has been fenced due
+  to management link being DOWN.
+- New logic prevents master from entering maintenance mode while HA-Lizard is enabled
+- check_slave_status will now check management link state in case failures are detected. Don't waste time checking slaves
+  the master cannot get to
+- bugfix - in certain conditions, HA could become disabled due to stale DB entry after fencing a master. Condition is now
+  checked on success of promote_slave
+- Added shutdown of all VMs on a master that lost its management link
+- Added master management link tracking in support new logic which evacuates VMs from a master that lost its management link
+- Improved speed of shutdown of master's VMs when the master has lost its management link. Improvement will launch several parallel processes to
+  speed up the shutown of VMs
+- Added handling of XenServer bug XSO-586. In certain network environments, xapi requires some delay before starting.
+  Toolstack will restart on first iteration/boot. (!! EXPERIMENTAL)
+- Improved status display from CLI now displays status of HA and associated daemons.
+- bugfix - html body of email alerts were missing newline characters
+- Added pool status report to email alerts
+- Added validation of all VM ha-enabled state to ensure newly introduced VMs have a valid state set
+- Added host health status tracking in support of improved host selection logic when starting a VM.
+  HOST_SELECT_METHOD configuraiton parameter added for backward compatibility. 
+  HOST_SELECT_METHOD=1 preserves old behavior. When a Master fences a slave, connection to xencenter will be lost and API restarted
+  HOST_SELECT_METHOD=0 new logic. Tracks all host statuses and more cleanly select a host to start a VM on. XenCenter connectivity not lost.
+- bugfix - updated various functions to no longer depend on name-label=hostname.
+
+Version 2.1.1 - November 2016
+- bugfix - Updated init which was not killing timed out calls to API when connecting from a slave
+- added timeout handling to CLI to deal with situations where XAPI is unresponsive
+- updated default installation parameters to support 2-node HA with no configuration changes required
+- added pool VM running state validation to slaves to ensure local VMs are not running elsewhere
+- reintroduction delay when master regains its MGT link is now dynamically calculated based on xapi_delay and xapi_count
+  params to ensure a slave has enough time to recover
+  pool before reintroducing a former master that lost its management link.
+- bugfix - erroneous log stated VM started but there was no host to start the VM on.
+- added CLI option "retsore-default" to restore default configurartion. Updated tab completion
+
+Version 2.1.2 - November 2016
+- Improved VM recovery time by no longer waiting for a failed slave to respond in certain situations.
+- Added variable timeout call handling to API to handle certain long running functions
+- Improved resetting of powerstates that timed out in some cases where slave was fenced but still showing as enabled in XAPI DB
+- bugfix- In rare cases, certain crash scenarios left hung VMs. Master detects this and cleans up innapropriate states.
+- Added master role validations to capture rare cases that leave no pool master
+- Added auto removal of slave suspended-HA mode. New logic no longer requires manual intervention. Health status tracking is used
+  to remove the suspension automatically.
+- bugfix - in certain rare situations vm state validation failed due to missing or corrupted stored local host UUID. Addl validations added.
+- Helpfile updates
+
+Version 2.1.3 - December 2016
+- Added ha-status, ha-enable, ha-disable actions to CLI tool. Helpful when calling ha-cfg from external scripts
+- Updated tab completion - added new cli command 'restore-default' and added restrictions on set-vm-ha/get-vm-ha to exclude snapshots
+- Added restriction to omit snapshots from list of pool VMs which could cause erroneous alerts when taking snapshots.
+- Improved speed of cli command get-vm-ha
+- bugfix - status displayed control characters in 6.x deployments
+- unified codebase. Merged with 1.9.1
+- Updated init for backward compatibility with xenserver 6.x environments
+- bugfix - deal with path to list_domains transparently irrespective of dom0 release
+- added legacy xenops detection/support for xenserver 6.x environments
+- replaced host selection logic to be backward compatible
+
+Version 2.1.4 - August 2017
+- Bug fix: updated init to wait for xapi to fully initialize before starting ha-lizard
+
+Version 2.2.0 - October 2018
+- Introduced a locking mechanism to detect when a VM has migrated to another pool AND ha-lizard is running on the target pool. A token
+  which tracks the pool UUID the VM last ran on is now stored as a VM parameter which blocks the target pool from auto-starting the VM. This is
+  important when using VM storage migration as the VM temporarliy exists on both pools at the same time while the migration is completing.
+  This addresses some cases where disk corruption could occur due to the same VM being started on both pools at the same time.
+- Change in behavior for newly created VMs. When operating with default settings (global_vm_ha=1), ha-lizard would immediately start any
+  newly created VM. This is no longer the case. Newly created VMs will remain in the off state and only be treated with HA after the first
+  manual start of the VM which allows admins to complete their new VM creation tasks without HA getting in the way with a forced start.
+- Updated peer network connectivity checks to be compatible with XCP-ng 7.6+
+- Add alerts generation. Will create a pool-level alert for all HA actions and warnings which mirror email alerts.
+  Feature can be toggled on/off from CLI "ha-cfg set enable_alerts 1". Alerts can be viewed in XenCenter or CLI
+- Updated VM backup logic to hide CIFS password in logs. See /etc/ha-lizard/scripts/vm_backup.sh for details
+  or "/etc/ha-lizard/scripts/vm_backup.sh --help"
+- Added new CLI options to display and clear HA-Lizard active alert messages
+- Added hourly task to check disk SMART status and raise an alert on any disk errors. All disks reported by the host are checked.
+- Added IP address input validation to CLI
+- Split user configuration parameters from initializtion parameters making it easier to introduce new parameters in future releases.
+- Improved debug includes main PID instead of subprocss PIDs in output. This is helpful when reading debug as all relevent log lines
+  can now be referenced in a sequence more easily.
+- Tested for compatibility with XenServer 7.x and XCP-ng 7.5
+  (but should continue to be compatible with all versions from XCP 1.x XenServer 6.x and 7.x, XCP-ng 7.x)
+
+Version 2.2.1 - May 2019
+- autoselect_slave selection was only occuring while HA=enabled which caused no slave to be selected on brand new install
+  with HA remaining in the disabled state causing triggering of alerts until HA becomes enabled.
+  autoselect now occurs with HA enabled or disabled
+- improved tracking of condition where no slaves are available to recover pool
+
+Version 2.2.2 - Sep 2019
+- Verified XCP-ng/Citrix version 8 interoperability
+- Bugfix: Email handler was not properly handling SSL connections to an SMTP server and was attempting TLS on a SSL port. Resolved
+- Fix XenAPI call ssl error introduced in XCP/XS version 8 which now forces a certificate check that fails on default self signed certificate. Using HTTP instead
+
+Version 2.2.3 - Oct 2019
+- Updated check for disk SMART errors to suppress smartctl errors 'Command line did not parse' and 'Device open failed' which are not really disk errors
+
+Version 2.3.0 - Feb 2021
+- XCP-ng/Citrix Hypervisor version 8.2 interoperability
+- Updated vm_backup script to skip processing a VM that fails to snapshot
+- Bug fix #2210 - fixed broken home pool uuid validation used to track a VM after migrating to another pool
+- Improved regex string validation which handles backup retention in vm_backup script
+- Bug fix - logging for get_alert_level fixed
+- Added detailed cluster services status display to ha-cfg CLI tool
+- Significant change in behavior for hyperconverged 2-host pools using HA-Lizard+iSCSI-HA (AKA noSAN cluster).
+  Added additional checks to fencing logic to prevent fencing a peer in a 2-node pool with hyperconverged iscsi-ha
+  storage. Logic will block fencing if the replication network is actively connected while the peer's management
+  network is not reachable. This adds an additional layer of checks to ensure the peer host is actually gone before
+  fencing.
+
+Version 2.3.1 - Sep 2021
+- The hotfix XS82E031 removes HTTP access to the management network static web page which is used by ha-lizard for
+  health checks. Fix retains old HTTP health checks (for backward compatibility) and switches to HTTPS on error
+- Added <version> parameter to ha-cfg CLI tool for displaying version number
+
+Version 2.3.2 - Feb 2024
+- Updated email handler for vm_backup and exports to better handle SSL
+
+Version 2.3.3 - Nov 2024
+- Code preparation for moving project to github. No logic changes. Only some comments added/removed
+
+Version 2.4.0 - Dec 2024
+- Initial release for github.

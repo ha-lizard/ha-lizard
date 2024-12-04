@@ -1,0 +1,72 @@
+# Tab completion for ha-cfg command line tool for HA-Lizard
+
+_ha-cfg() 
+{
+	local cur prev base
+	COMPREPLY=()
+	cur="${COMP_WORDS[COMP_CWORD]}"
+	prev="${COMP_WORDS[COMP_CWORD-1]}"
+	
+	
+	if [ "${prev}" = set ]
+	then
+		local SET_ARGS=`ha-cfg get -l | awk -F '=' {'print $1'} | tr '[:upper:]' '[:lower:]'`
+		COMPREPLY=( $(compgen -W "${SET_ARGS}" -- ${cur}) )
+		return 0
+	elif [ "${prev}" = set-vm-ha ]
+	then
+		OLD_IFS=$IFS #vm name labels may contain spaces,, loop on line feeds
+		IFS=$'\n'
+		local SET_VM_HA_ARGS=$(for vm in `xe vm-list is-control-domain=false is-a-snapshot=false | grep "name-label" | awk -F ': ' {'print $2'}`
+		do
+			echo "${vm}"
+		done )
+		COMPREPLY=( $(compgen -W "${SET_VM_HA_ARGS}" -- ${cur}) )
+		IFS=$OLD_IFS
+		return 0
+	elif [ "${prev}" = fence_action ]
+	then
+		COMPREPLY=( $(compgen -W "start stop reset" -- ${cur}) )
+		return 0
+	elif [ ${prev} = "ha-cfg" ]
+	then
+		local BASE_OPTIONS="help show-alerts clear-alerts insert remove log get set get-vm-ha set-vm-ha status backup restore restore-default email email_debug ha-status ha-enable ha-disable cluster-status"
+		COMPREPLY=($(compgen -W "${BASE_OPTIONS}" -- ${cur}))
+		return 0
+	elif [ ${prev} = op_mode ]
+	then
+		COMPREPLY=($(compgen -W "1 2" -- ${cur}))
+		return 0
+	fi
+
+	########################
+	# check for param that
+	# accepts a  bin value
+	########################
+        local PARAMS_BINARY=(enable_logging fence_enabled fence_ha_onfail fence_host_forget \
+        fence_reboot_lone_host global_vm_ha mail_on monitor_killall promote_slave \
+        slave_ha slave_vm_stat fence_use_ip_heuristics fence_quorum_required enable_alerts disk_monitor)
+	for binval in ${PARAMS_BINARY[@]}
+	do
+		if [ "${prev}" = $binval ]
+		then
+			COMPREPLY=( $(compgen -W "0 1" -- ${cur}) )
+			return 0	
+		fi
+	done
+
+	##########################
+	# check for vm-name-label
+	# which accepts true/false
+	##########################
+	local VM_LIST=`xe vm-list is-control-domain=false is-a-snapshot=false | grep "name-label" | awk -F ': ' {'print $2'}`
+        for ha_val in ${VM_LIST[@]}
+        do
+                if [ "${prev}" = $ha_val ]
+                then
+                        COMPREPLY=( $(compgen -W "true false" -- ${cur}) )
+                        return 0
+                fi
+        done
+}
+complete -F _ha-cfg ha-cfg

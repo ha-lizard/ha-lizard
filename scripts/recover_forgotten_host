@@ -1,0 +1,61 @@
+clear
+echo "###################################################################################################################"
+echo "###################################################################################################################"
+echo "## DO NOT CONTINUE unless you know what you are doing                                                            ##"
+echo "## This script tries to prepare a host that has been forgotten for reintroduction to a pool                      ##"
+echo "## It is intended for hosts with no local storage used to serve VMs - ALL pool state information will be erased  ##"
+echo "## Ethernet and management interfaces will be reset with new values entered here. Host will reboot when finished ##"
+echo "## Control + C to exit or <Enter> to continue                                                                    ##"
+echo "###################################################################################################################"
+echo "###################################################################################################################"
+read n1
+
+
+HOST_MODE=`xe host-is-in-emergency-mode`
+if [ $HOST_MODE = "true" ]
+then
+	echo "Host is in emergency mode - attempt resetting host? Enter [ yes or no ]"
+	read CONTINUE
+else
+	echo "Host is not in emergency mode - Host may be recovered by alternate means. continue? Enter [ yes or no ]"
+	read CONTINUE
+fi
+
+if [ $CONTINUE = "no" ]
+then
+	exit 1
+elif [ $CONTINUE = "yes" ]
+then
+	echo "Continuing"
+else
+	echo "Invalid Input - exiting"
+	exit 1
+fi
+
+NOW=`date +"%g%m%d_%H%M%S"`
+echo "Moving  XAPI state files to /var/xapi/state.db.old$NOW /var/xapi/local.db.old$NOW"
+mv /var/xapi/state.db /var/xapi/state.db.old$NOW && mv /var/xapi/local.db /var/xapi/local.db.old$NOW
+if [ $? = 0 ]; then
+        echo "Successfully moved XAPI state files"
+fi
+
+echo "Switching to master"
+
+echo master > /etc/xensource/pool.conf
+if [ $? = 0 ]; then
+	echo "Successfully set host mode to master"
+fi	
+
+echo "Enter new IP information for host. Host will reset when done"
+echo "Enter new IP address"
+read IP
+echo "Enter subnet mask"
+read NETMASK
+echo "Enter default gateway"
+read GATEWAY
+echo "Enter DNS server IP"
+read DNS
+echo "Enter mode - static or dhcp"
+read MODE
+
+xe-reset-networking --ip=$IP --netmask=$NETMASK --gateway=$GATEWAY --dns=$DNS --mode=$MODE

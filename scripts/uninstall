@@ -1,0 +1,102 @@
+#!/bin/bash
+clear
+echo "#################################################################################################"
+echo "#################################################################################################"
+echo "## ha-lizard uninstaller - removes ha-lizard, mail and sendmail (if chosen)                    ##"
+echo "##                                                                                             ##"
+echo "#################################################################################################"
+echo "#################################################################################################"
+
+############################
+# Make sure this is an XCP
+# or XenServer host
+# before continuing
+############################
+RELEASE=`cat /etc/redhat-release`
+if [ $? != "0" ]
+then
+	RELEASE=UNKNOWN
+fi
+
+if [[ $RELEASE == XCP* ]] || [[ $RELEASE == XenServer* ]]
+then
+	echo "Host relese version = $RELEASE"
+else
+        echo "This host release ($RELEASE) not detected as an XCP or XenServer host"
+        echo "continue anyway? <CTRL + C> to exit OR <Enter> to continue"
+        read n1
+fi
+
+if [ "$1" != "--auto" ]
+then
+	echo "Removing ha-lizard global pool parameters. This will remove ALL global params stored in xapi database"
+	echo "Enter <yes or no>"
+	read REMOVE_GLOBALS
+fi
+
+if [ "$REMOVE_GLOBALS" = "yes"  -o "$1" = "--auto" ]
+then
+	/etc/ha-lizard/scripts/ha-cfg remove
+else
+	echo "Skipping removal of global parameters"
+fi
+
+if [ "$1" != "--auto" ]
+then
+	echo "Would you like to keep a copy of the ha-lizard configuration file in /tmp? <yes or no>"
+	read KEEP_CONFIG
+fi
+
+if [ "$KEEP_CONFIG" = "yes"  -o "$1" = "--auto" ]
+then
+	cp /etc/ha-lizard/ha-lizard.conf /tmp
+	if [ $? = "0" ]
+	then
+		echo "Configuration file saved in /tmp"
+	fi
+fi
+
+if [ "$1" != "--auto" ]
+then
+	echo "Removing all ha-lizard files and application. Continue? <yes or no>"
+	read REMOVE
+fi
+if [ "$REMOVE" = "yes"  -o "$1" = "--auto" ]
+then
+	chkconfig --del ha-lizard
+	chkconfig --del ha-lizard-watchdog
+	service ha-lizard stop -w
+	rm -f /bin/ha-cfg
+	rm -rf /etc/ha-lizard && rm -f /etc/init.d/ha-lizard && rm -f /etc/init.d/ha-lizard-watchdog && rm -f /etc/bash_completion.d/ha-cfg
+	if [ $? = 0 ] 
+	then
+		echo "ha-lizard successfully removed"
+	fi
+fi
+
+if [ "$1" != "--auto" ]
+then
+	echo "Remove ha-lizard fields <autopromote_uuid and ha-lizard-enabled>  from pool database"
+	echo "This will remove global parameters stored in xapi database. Skip this step"
+	echo "if ha-lizard is still running on other hosts in the pool. Enter <yes or no>"
+	read REMOVE_FIELDS
+fi
+if [ "$REMOVE_FIELDS" = "yes"  -o "$1" = "--auto" ]
+then
+	POOL_UUID=`xe pool-list --minimal`
+	xe pool-param-remove uuid=$POOL_UUID param-name=other-config param-key=autopromote_uuid 2>/dev/null
+	if [ "$?" = "0" ]
+	then
+		echo "Successfully removed field: autopromote_uuid from database"
+	else
+		echo "Skipping removal of field: autopromote_uuid from database"
+	fi
+	xe pool-param-remove uuid=$POOL_UUID param-name=other-config param-key=XenCenter.CustomFields.ha-lizard-enabled 2>/dev/null
+	if [ "$?" = "0" ]
+	then
+        	echo "Successfully removed field: XenCenter.CustomFields.ha-lizard-enabled from database"
+	else
+        	echo "Skipping removal of field: XenCenter.CustomFields.ha-lizard-enabled from database"
+	fi
+fi
+echo "Finished"

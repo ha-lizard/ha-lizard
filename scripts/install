@@ -1,0 +1,277 @@
+clear
+echo "#################################################################################"
+echo "#                                                                               #"  
+echo "# ha-lizard - high availability for XAPI based Xen Virtualization Environments  #" 
+echo "# Copyright 2013-2024 Salvatore Costantino                                      #"
+echo "# www.ha-lizard.com                                                             #"
+echo "# ha@ixi0.com                                                                   #"
+echo "#                                                                               #"
+echo "#                                                                               #"
+echo "#    ha-lizard is free software: you can redistribute it and/or modify          #"
+echo "#    it under the terms of the GNU General Public License as published by       #"
+echo "#    the Free Software Foundation, either version 3 of the License, or          #"
+echo "#    (at your option) any later version.                                        #"
+echo "#                                                                               #"
+echo "#    ha-lizard is distributed in the hope that it will be useful,               #"
+echo "#    but WITHOUT ANY WARRANTY; without even the implied warranty of             #"
+echo "#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the              #"
+echo "#    GNU General Public License for more details.                               #"
+echo "#                                                                               #"
+echo "#    You should have received a copy of the GNU General Public License          #"
+echo "#    along with ha-lizard.  If not, see <http://www.gnu.org/licenses/>.         #"
+echo "#                                                                               #"
+echo "#################################################################################"
+if [ -a ../ha-lizard.init ]
+then
+        source ../ha-lizard.init
+        if [ "$POST_VERSION" = "1" ]
+        then
+               (`./timeout 3 ./post_version.py $VERSION`) & 
+        fi
+else
+        INSTALLER_PATH=$0
+        BASE_PATH=${INSTALLER_PATH/scripts\/`basename $INSTALLER_PATH`}
+        CONFIG_PATH="$BASE_PATH"ha-lizard.init
+        if [ -a $CONFIG_PATH ]
+        then
+                source $CONFIG_PATH
+                if [ "$POST_VERSION" = "1" ]
+                then
+                (`$BASE_PATH/scripts/timeout 3 $BASE_PATH/scripts/post_version.py $VERSION`) &
+                fi
+        fi
+fi
+
+if [ "$1" = "--nostart" ]
+then
+	ACCEPT=YES
+else
+	echo "You must type <YES> to accept the software licence or any other key to exit"
+	read ACCEPT
+fi
+if [ "$ACCEPT" != "YES" ]
+then
+	echo "License not accepted - exiting"
+	exit 1
+else
+	echo "License Accepted"
+fi
+
+sleep 2
+clear
+echo "####################################################################"
+echo "####################################################################"
+echo "## ha-lizard installer - installs ha-lizard and                   ##"
+echo "## configures auto starting for required services                 ##"
+echo "####################################################################"
+echo "####################################################################"
+
+############################
+# Make sure this is an XCP
+# or XenServer host
+# before continuing
+############################
+RELEASE=`cat /etc/redhat-release`
+if [ $? != "0" ]
+then
+        RELEASE=UNKNOWN
+fi
+
+if [[ $RELEASE == XCP* ]] || [[ $RELEASE == XenServer* ]]
+then
+        echo "Host relese version = $RELEASE"
+else
+        echo "This host release ($RELEASE) not detected as an XCP or XenServer host"
+        echo "continue anyway? <CTRL + C> to exit OR <Enter> to continue"
+        read n1
+fi
+
+###############################
+# Check for requirted programs
+###############################
+REQUIRED=(xe awk echo logger hostname cat grep column curl)
+for i in ${REQUIRED[@]}
+do
+        CHECK=`which $i 2>/dev/null`
+        if [ $? = "0" ]
+        then
+                echo "$CHECK found, OK.."
+        else
+                echo "*** Error locating executable [ $i ] required by ha-lizard"
+                ERROR=1
+        fi
+done
+
+REQUIRED=("/opt/xensource/sm/resetvdis.py" "/etc/init.d/functions")
+for i in ${REQUIRED[@]}
+do
+        if [ -a $i ]
+        then
+                echo "$i found, OK.."
+        else
+                echo "*** Error locating executable [ $i ] required by ha-lizard"
+                ERROR=1
+        fi
+done
+if [ "$ERROR" = "1" ]
+then
+        echo "Some required executables not found. Check your system configuration"
+        echo "Continue anyway <Enter to continue or CTRL+C to exit>"
+        read CONTINUE
+fi
+
+##################################
+# Find path to installation files
+##################################
+INSTALL_PATH=`readlink -f $0`
+echo "Installing from $INSTALL_PATH"
+BASE_INSTALL_PATH=${INSTALL_PATH/scripts\/`basename $INSTALL_PATH`}
+echo "Installation files path found: $BASE_INSTALL_PATH"
+
+if [ "$1" != "--nostart" ]
+then
+	echo "<Enter> to complete installation or <ctrl +c> to quit"
+	read -n1
+fi
+echo "Copying files to /etc/ha-lizard"
+
+#################################
+# If this is an upgrade - target
+# folder may already exist
+#################################
+if [ -d /etc/ha-lizard ]
+then
+	echo "Installation folder already exists"
+else
+	echo "Creating installation folder /etc/ha-lizard"
+	mkdir /etc/ha-lizard
+fi
+
+###################################
+# Copy installation files to target
+###################################
+cp -r $BASE_INSTALL_PATH/* /etc/ha-lizard/
+
+###################################
+# Make executable
+###################################
+if [ $? -eq 0 ]
+then
+	chmod +x /etc/ha-lizard/scripts/*
+	chmod +x /etc/ha-lizard/init/*
+	chmod +x /etc/ha-lizard/ha-lizard.sh
+
+	FENCE_PATH='/etc/ha-lizard/fence/'
+	FENCE_METHODS=`ls $FENCE_PATH`
+	for i in ${FENCE_METHODS[@]}
+	do
+		chmod +x $FENCE_PATH/$i/*.sh
+		chmod +x $FENCE_PATH/$i/*.tcl
+	done
+	##############################################
+	# create sym link to CLI tool - skip if exists
+	##############################################
+	if [ ! -h /bin/ha-cfg ]
+	then
+		echo "Creating symbolic link for CLI tool"
+		ln -s /etc/ha-lizard/scripts/ha-cfg /bin/ha-cfg
+	else
+		echo "CLI tool link alredy exists - /bin/ha-cfg"
+	fi
+
+else
+	echo "Failed to copy installation files from $BASE_INSTALL_PATH to /etc/ha-lizard"
+	exit 1
+fi
+
+####################################
+# Place tab completion script in 
+# place and source
+####################################
+cp /etc/ha-lizard/scripts/ha-cfg.completion /etc/bash_completion.d/ha-cfg
+chmod +x /etc/bash_completion.d/ha-cfg
+. /etc/bash_completion.d/ha-cfg
+
+####################################
+# Copy init files to /etc/init.d
+####################################
+echo "Copying init file to /etc/init.d/"
+cp /etc/ha-lizard/init/ha-lizard /etc/init.d/
+echo "Copying watchdog init file to /etc/init.d/"
+cp /etc/ha-lizard/init/ha-lizard-watchdog /etc/init.d/
+
+####################################
+# Bootstrap configuration - does
+# NOT replace pool settings stored
+# in XAPI database - required for
+# initial run - settings replaced
+# by pool settings after initial
+# run
+###################################
+echo "Initializing Configuration"
+cat /etc/ha-lizard/scripts/install.params > /etc/ha-lizard/ha-lizard.pool.conf && cat /etc/ha-lizard/ha-lizard.pool.conf | column
+echo
+
+##################################
+# Stop service if already running
+##################################
+CHECK_SERVICE=`service ha-lizard status`
+if [[ $CHECK_SERVICE == *running* ]]
+then
+	echo "stopping ha-lizard"
+	service ha-lizard-watchdog stop
+	service ha-lizard stop
+fi
+
+if [ "$1" = "--nostart" ]
+then
+	chkconfig ha-lizard on
+	chkconfig ha-lizard-watchdog on
+else
+	echo "starting service"
+	chkconfig ha-lizard on && service ha-lizard start
+	echo
+	echo "starting watchdog"
+	chkconfig ha-lizard-watchdog on && service ha-lizard-watchdog start
+fi
+
+POOL_UUID=`xe pool-list --minimal`
+
+##################################
+# Create enable/disable field in
+# XAPI DB - skip if exists
+##################################
+echo
+echo "Creating custom xapi field for enabling/disabling ha-lizard"
+xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=XenCenter.CustomFields.ha-lizard-enabled &>/dev/null
+if [ "$?" = "0" ]
+then
+	echo "Pool Parameter XenCenter.CustomFields.ha-lizard-enabled Already exists - skipping"
+else
+	xe pool-param-add uuid=$POOL_UUID param-name=other-config XenCenter.CustomFields.ha-lizard-enabled=false
+fi
+
+#################################
+# Create autoselect UUID field
+# in XAPI DB - skip if exists
+#################################
+echo
+echo "Creating custom xapi field for tracking eligibe pool slave for recovery"
+xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=autopromote_uuid &>/dev/null
+if [ "$?" = "0" ]
+then
+        echo "Pool Parameter autopromote_uuid Already exists - skipping"
+else
+	xe pool-param-add uuid=$POOL_UUID param-name=other-config autopromote_uuid=""
+fi
+
+#################################
+# Insert required fields into DB
+#################################
+/etc/ha-lizard/scripts/ha-cfg insert
+
+echo "Finished"
+echo "Global pool parameters can be configured by running <ha-cfg>"
+echo "ha-lizard can be enabled by running <ha-cfg status>"
+echo "All settings in the global configuration are shared by all pool members"
+echo "Override pool config parameters per host by modifying ha-lizard.conf"
