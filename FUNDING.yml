@@ -1,0 +1,8 @@
+# This file enables the GitHub Sponsors button and links to funding platforms.
+github: ha-lizard
+patreon: ha-lizard
+open_collective: ha-lizard
+ko_fi: ha-lizard
+custom:
+  - url: https://ha-lizard.com/donate
+    label: "Support this project"
