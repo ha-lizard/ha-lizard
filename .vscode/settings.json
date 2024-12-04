@@ -34,20 +34,29 @@
 
   "cSpell.words": [
     "addsign",
+    "autoselect",
+    "Autoselect",
     "createrepo",
     "elif",
     "github",
     "GITHUB",
     "gnupg",
+    "hyperconverged",
+    "iscsi",
+    "mailx",
+    "Massimo",
     "noninteractive",
     "pipefail",
     "rpmbuild",
     "rpmmacros",
     "RPMS",
     "rpmsign",
+    "sendmail",
     "shellcheck",
+    "smartctl",
     "SRPM",
-    "SRPMS"
+    "SRPMS",
+    "XAPI"
   ],
   "ansible.python.interpreterPath": "/bin/python3"
 }
