@@ -50,8 +50,11 @@ echo "Building skipped."
 %install
 # Install files into the buildroot
 mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard
-cp -Par * %{buildroot}%{_sysconfdir}/ha-lizard
-rm -rf %{buildroot}%{_sysconfdir}/ha-lizard/rpm
+# Use rsync to copy all files except the 'etc' directory
+rsync -a --exclude=etc/ * %{buildroot}%{_sysconfdir}/ha-lizard
+# Specifically install the bash completion file
+install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
+
 
 %pre
 # Placeholder for pre-install actions
@@ -69,10 +72,6 @@ find %{_sysconfdir}/ha-lizard/scripts -type f -exec chmod +x {} \;
 
 # Add CLI link
 ln -sf %{_sysconfdir}/ha-lizard/scripts/ha-cfg /usr/bin/ha-cfg || true
-
-# Tab completion for CLI
-cp %{_sysconfdir}/ha-lizard/scripts/ha-cfg.completion /etc/bash_completion.d/ha-cfg || true
-chmod +x /etc/bash_completion.d/ha-cfg || true
 
 # Enable init scripts for systemd
 # TODO: migrate to systemctl
@@ -151,9 +150,7 @@ fi
 
 # Documentation
 # TODO: use doc macro to handle the documentation files
-%doc README.md LICENSE doc/COPYING doc/HELPFILE doc/INSTALL doc/RELEASE
-%doc %{_sysconfdir}/ha-lizard/LICENSE
-%doc %{_sysconfdir}/ha-lizard/README.md
+%doc doc/COPYING doc/HELPFILE doc/INSTALL doc/RELEASE
 %doc %{_sysconfdir}/ha-lizard/doc/COPYING
 %doc %{_sysconfdir}/ha-lizard/doc/HELPFILE
 %doc %{_sysconfdir}/ha-lizard/doc/INSTALL
@@ -164,6 +161,9 @@ fi
 %{_sysconfdir}/ha-lizard/state/autopromote_uuid
 %{_sysconfdir}/ha-lizard/state/ha_lizard_enabled
 %{_sysconfdir}/ha-lizard/state/local_host_uuid
+
+# bash completion
+%{_sysconfdir}/bash_completion.d/ha-cfg
 
 # TODO: Add the CHANGELOG file following the RPM spec format
 #%changelog
