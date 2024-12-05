@@ -1,21 +1,23 @@
 #!/bin/bash
 
 exec 2>/dev/null
-source /etc/ha-lizard/ha-lizard.pool.conf     #global configuration parameters for all hosts in pool - dynamic for pool
-source /etc/ha-lizard/ha-lizard.init          #override configuration settings for this host - static for this host
+# shellcheck source=/dev/null
+source /etc/ha-lizard/ha-lizard.pool.conf #global configuration parameters for all hosts in pool - dynamic for pool
+# shellcheck source=/dev/null
+source /etc/ha-lizard/ha-lizard.init #override configuration settings for this host - static for this host
 
 #######################
 # Environment VARs
 #######################
 PREFIX=HA_
-PARAM_LIST=`/bin/cat /etc/ha-lizard/scripts/install.params`
+PARAM_LIST=$(/bin/cat /etc/ha-lizard/scripts/install.params)
 CHECK_PARAMS_BIN=(ENABLE_ALERTS ENABLE_LOGGING FENCE_ENABLED FENCE_HA_ONFAIL FENCE_HOST_FORGET FENCE_REBOOT_LONE_HOST GLOBAL_VM_HA MAIL_ON MONITOR_KILLALL PROMOTE_SLAVE SLAVE_HA SLAVE_VM_STAT FENCE_USE_IP_HEURISTICS HOST_SELECT_METHOD)
 CHECK_PARAMS_NUM=(FENCE_MIN_HOSTS MONITOR_DELAY MONITOR_MAX_STARTS MONITOR_SCANRATE XAPI_COUNT XAPI_DELAY XE_TIMEOUT MGT_LINK_LOSS_TOLERANCE)
 CHECK_PARAMS_EMAIL=(MAIL_FROM MAIL_TO)
 CHECK_PARAMS_RESTART_REQ=(MONITOR_DELAY MONITOR_MAX_STARTS MONITOR_SCANRATE MONITOR_KILLALL)
 CHECK_PARAMS_DEPRECATED=(FENCE_HOST_FORGET)
 CHECK_PARAMS_NULL_ALLOWED=(FENCE_IPADDRESS FENCE_PASSWD DISABLED_VAPPS SMTP_USER SMTP_PORT)
-CHECK_PARAMS_IP_ADDRESS=(FENCE_IPADDRESS FENCE_HEURISTICS_IPS) 
+CHECK_PARAMS_IP_ADDRESS=(FENCE_IPADDRESS FENCE_HEURISTICS_IPS)
 HELPFILE=/etc/ha-lizard/doc/HELPFILE
 STATE_FILES=/etc/ha-lizard/state
 LOG_EXEC='/etc/ha-lizard/scripts/log'
@@ -26,35 +28,27 @@ TIMEOUT=false
 # this is a slave and
 # xe is slow to respond
 #########################
-if [[ $(cat /etc/xensource/pool.conf) == slave* ]]
-then
-	POOL_UUID=$(/etc/ha-lizard/scripts/timeout 3 xe pool-list --minimal)
-	if [ $? -ne 0 ]
-	then
-		#########################################
-		## Lets display status if we can
-		#########################################
-		echo "timeout"
-		TIMEOUT=true
-		#exit 124
-	fi
+if [[ $(cat /etc/xensource/pool.conf) == slave* ]]; then
+  if [ "$(/etc/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
+    #########################################
+    ## Lets display status if we can
+    #########################################
+    echo "timeout"
+    TIMEOUT=true
+    #exit 124
+  fi
 fi
 
 ##########################
 # Make sure XE is alive
 # when calling externally
 ##########################
-if [ "$3" = "timeout" -o "$2" = "timeout" ]
-then
-	POOL_UUID=`/etc/ha-lizard/scripts/timeout 3 xe pool-list --minimal`
-	if [ $? -ne 0 ]
-	then
-		exit 124
-	fi
-
-elif [ ${TIMEOUT} = "false" ]
-then
-	POOL_UUID=`xe pool-list --minimal`
+if [[ "$3" = "timeout" || "$2" = "timeout" ]]; then
+  if [ "$(/etc/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
+    exit 124
+  fi
+elif [ ${TIMEOUT} = "false" ]; then
+  POOL_UUID=$(xe pool-list --minimal)
 fi
 
 ##############################
@@ -63,28 +57,24 @@ fi
 # custom settings
 ##############################
 
-function insert () {
-	for i in $PARAM_LIST
-	do
-		PARAM=`echo $i | awk -F "=" '{print $1}'`
-		VALUE=`echo $i | awk -F "=" '{print $2}'`
-		PARAM_EXISTS=`xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=$PREFIX$PARAM &>/dev/null`
-		if [ $? -ne 0 ]
-		then
-			xe pool-param-add uuid=$POOL_UUID param-name=other-config $PREFIX$PARAM=$VALUE
-			echo "Inserting $PREFIX$PARAM=$VALUE"
-		fi
-	done
+function insert() {
+  for i in $PARAM_LIST; do
+    PARAM=$(echo "$i" | awk -F "=" '{print $1}')
+    VALUE=$(echo "$i" | awk -F "=" '{print $2}')
+    if [ "$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=$PREFIX"$PARAM" &>/dev/null)" -ne 0 ]; then
+      xe pool-param-add uuid="$POOL_UUID" param-name=other-config $PREFIX"$PARAM"="$VALUE"
+      echo "Inserting $PREFIX$PARAM=$VALUE"
+    fi
+  done
 } #End function insert
 
-function remove () {
-	for i in $PARAM_LIST
-	do
-		PARAM=`echo $i | awk -F "=" '{print $1}'`
-		VALUE=`echo $i | awk -F "=" '{print $2}'`
-		xe pool-param-remove uuid=$POOL_UUID param-name=other-config param-key=$PREFIX$PARAM
-		echo "Removing $PREFIX$PARAM=$VALUE"
-	done
+function remove() {
+  for i in $PARAM_LIST; do
+    PARAM=$(echo "$i" | awk -F "=" '{print $1}')
+    VALUE=$(echo "$i" | awk -F "=" '{print $2}')
+    xe pool-param-remove uuid="$POOL_UUID" param-name=other-config param-key="$PREFIX$PARAM"
+    echo "Removing $PREFIX$PARAM=$VALUE"
+  done
 } #End function remove
 
 #################################
@@ -92,34 +82,30 @@ function remove () {
 # passed in arg1. Returns 0
 # on valid IP and 1 on invalid
 ################################
-function validate_ip () {
-	RESTORE_IFS=$IFS
-	IFS="."
-	IP=$1
-	IP_ARRAY=()
+function validate_ip() {
+  RESTORE_IFS=$IFS
+  IFS="."
+  IP=$1
+  IP_ARRAY=()
 
-	for i in ${IP[@]}
-	do
-		IP_ARRAY+=($i)
-	done
-	IFS=$RESTORE_IFS
+  for i in "${IP[@]}"; do
+    IP_ARRAY+=("$i")
+  done
+  IFS=$RESTORE_IFS
 
-	# Make sure we have 4 array elements
-	if [ ${#IP_ARRAY[*]} -ne 4 ]
-	then
-		return 1
-	else
-		# Check that each octet is between 0-255
-		for i in ${IP_ARRAY[@]}
-		do
-			if [ $i -ge 0 ] && [ $i -le 255 ]
-			then
-				continue
-			else
-				return 1
-			fi
-		done
-	fi
+  # Make sure we have 4 array elements
+  if [ ${#IP_ARRAY[*]} -ne 4 ]; then
+    return 1
+  else
+    # Check that each octet is between 0-255
+    for i in "${IP_ARRAY[@]}"; do
+      if [ "$i" -ge 0 ] && [ "$i" -le 255 ]; then
+        continue
+      else
+        return 1
+      fi
+    done
+  fi
 } #End function validate_ip
 
 #################################
@@ -136,32 +122,28 @@ function validate_ip () {
 # --silent - only populate global array
 # PARAM_LIST() without displaying
 #################################
-function get () {
-	LIST=`xe pool-param-get uuid=$POOL_UUID param-name=other-config --minimal | tr -d [[:space:]]`
-	DEF_IFS=$IFS
-	IFS="; "
-	PARAM_LIST=()
-	for i in ${LIST[@]}
-	do
-		if [[ $i = $PREFIX* ]]
-		then
-			i=${i/$PREFIX/}
-			i=${i/:/=}
-			PARAM_LIST+=($i)
-			echo $i >> ./params.tmp
-		fi
-	done
+function get() {
+  LIST=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config --minimal | tr -d '[:space:]')
+  DEF_IFS=$IFS
+  IFS="; "
+  PARAM_LIST=()
+  for i in "${LIST[@]}"; do
+    if [[ $i = $PREFIX* ]]; then
+      i=${i/$PREFIX/}
+      i=${i/:/=}
+      PARAM_LIST+=("$i")
+      echo "$i" >>./params.tmp
+    fi
+  done
 
-	if [ "$1" != "--silent" ] && [ "$1" != "-l" ]
-	then
-		cat ./params.tmp | sort | column
-	elif [ "$1" = "-l" ]
-	then
-		cat ./params.tmp | sort
-	fi
+  if [ "$1" != "--silent" ] && [ "$1" != "-l" ]; then
+    sort <./params.tmp | column
+  elif [ "$1" = "-l" ]; then
+    sort <./params.tmp
+  fi
 
-	IFS=$DEF_IFS
-	rm -f ./params.tmp
+  IFS=$DEF_IFS
+  rm -f ./params.tmp
 } #End function get
 
 ##################################
@@ -171,56 +153,48 @@ function get () {
 # passed in.
 # Parameter name and set value
 #################################
-function set () {
-	if [[ -z "$2" ]] #|| [[ -z "$3" ]]
-	then
-		red
-		echo "Missing parameters. Set usage: <ha-cfg set PARAM VALUE>"
-		echo "Try <ha-cfg get> for a list of valid parameter names"
-		normal
-		exit 1
-	fi
+function set() {
+  if [[ -z "$2" ]]; then #|| [[ -z "$3" ]]
+    red
+    echo "Missing parameters. Set usage: <ha-cfg set PARAM VALUE>"
+    echo "Try <ha-cfg get> for a list of valid parameter names"
+    normal
+    exit 1
+  fi
 
-	PARAM_UPPER=`echo $2 | tr [a-z] [A-Z]`
-	get --silent
+  PARAM_UPPER=$(echo "$2" | tr '[:lower:]' '[:upper:]')
+  get --silent
 
-	for i in ${PARAM_LIST[@]}
-	do
-		if [[ `echo $i | awk -F "=" {'print $1'}` = $PARAM_UPPER ]]
-		then
-			local SUCCESS=1
-			break
-		fi
-	done
-	
-	if [ "$SUCCESS" = "1" ]
-	then
-		if [ "$3" ]
-		then
-			validate $PARAM_UPPER "$3"
-		else
-			validate $PARAM_UPPER ""
-		fi
-		xe pool-param-set uuid=$POOL_UUID other-config:$PREFIX$PARAM_UPPER=`echo $3`
-		if [ $? = 0 ]
-		then
-			#get
-			green
-			echo "Successfully updated $2 to value: $3"
-			WAIT=`get -l | grep MONITOR_DELAY | awk -F "=" '{print $2}'` && WAIT=$(($WAIT * 2))
-			echo "Wait at least $WAIT seconds for changes to propogate to all pool hosts"
-			normal
-			restart_required $2
-		fi
-	else
-		#get
-		red
-		echo "Parameter name $2 not found in xapi database - check your configuration and syntax"
-		echo "Valid configuration parameters are listed above"
-		normal
-	fi
+  for i in "${PARAM_LIST[@]}"; do
+    if [[ $(echo "$i" | awk -F "=" '{print $1}') = "$PARAM_UPPER" ]]; then
+      local SUCCESS=1
+      break
+    fi
+  done
+
+  if [ "$SUCCESS" = "1" ]; then
+    if [ "$3" ]; then
+      validate "$PARAM_UPPER" "$3"
+    else
+      validate "$PARAM_UPPER" ""
+    fi
+    if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:$PREFIX"$PARAM_UPPER"="$3")" = 0 ]; then
+      #get
+      green
+      echo "Successfully updated $2 to value: $3"
+      WAIT=$(get -l | grep MONITOR_DELAY | awk -F "=" '{print $2}') && WAIT=$((WAIT * 2))
+      echo "Wait at least $WAIT seconds for changes to propagate to all pool hosts"
+      normal
+      restart_required "$2"
+    fi
+  else
+    #get
+    red
+    echo "Parameter name $2 not found in xapi database - check your configuration and syntax"
+    echo "Valid configuration parameters are listed above"
+    normal
+  fi
 } #End function set
-
 
 ##################################
 # Function set-quiet sets the specified
@@ -232,52 +206,51 @@ function set () {
 # passed in.
 # Parameter name and set-quiet value
 #################################
-function set-quiet () {
-	if [[ -z "$2" ]] #|| [[ -z "$3" ]]
-	then
-		red
-		echo "Missing parameters. Set usage: <ha-cfg set PARAM VALUE>"
-		echo "Try <ha-cfg get> for a list of valid parameter names"
-		normal
-		exit 1
-	fi
+function set-quiet() {
+  # TODO: why the $3 is commented ?
+  if [[ -z "$2" ]]; then #|| [[ -z "$3" ]]
+    red
+    echo "Missing parameters. Set usage: <ha-cfg set PARAM VALUE>"
+    echo "Try <ha-cfg get> for a list of valid parameter names"
+    normal
+    exit 1
+  fi
 
-	PARAM_UPPER=`echo $2 | tr [a-z] [A-Z]`
-	get --silent
-	for i in ${PARAM_LIST[@]}
-	do
-		if [[ `echo $i | awk -F "=" {'print $1'}` = $PARAM_UPPER ]]
-		then
-			local SUCCESS=1
-			break
-		fi
-	done
-	
-	if [ "$SUCCESS" = "1" ]
-	then
-		if [ "$3" ]
-		then
-			validate $PARAM_UPPER $3
-		else
-			validate $PARAM_UPPER ""
-		fi 
+  PARAM_UPPER=$(echo "$2" | tr '[:lower:]' '[:upper:]')
+  get --silent
 
-		xe pool-param-set uuid=$POOL_UUID other-config:$PREFIX$PARAM_UPPER=`echo $3`
-		if [ $? = 0 ]
-		then
-			green
-			echo "Successfully updated $2 to value: $3"
-			normal
-		fi
-	else
-		get
-		red
-		echo "Parameter name $2 not found in xapi database - check your configuration and syntax"
-		echo "Valid configuration parameters are listed above"
-		normal
-	fi
-} #End function set-quiet
+  # Initialize SUCCESS to 0 (failure)
+  local SUCCESS=0
+  for i in "${PARAM_LIST[@]}"; do
+    # Simplify check using parameter expansion
+    if [[ "${i%%=*}" = "$PARAM_UPPER" ]]; then
+      SUCCESS=1 # Parameter found
+      break
+    fi
+  done
 
+  if [ "$SUCCESS" = "1" ]; then
+    # Validate the parameter value if present
+    if [ -n "$3" ]; then
+      validate "$PARAM_UPPER" "$3"
+    else
+      validate "$PARAM_UPPER" ""
+    fi
+
+    # Set the parameter
+    if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:$PREFIX"$PARAM_UPPER"="$3")" = 0 ]; then
+      green
+      echo "Successfully updated $2 to value: $3"
+      normal
+    fi
+  else
+    get
+    red
+    echo "Parameter name $2 not found in xapi database - check your configuration and syntax"
+    echo "Valid configuration parameters are listed above"
+    normal
+  fi
+} # End function set-quiet
 
 ##############################
 # Function restart_required
@@ -289,48 +262,45 @@ function set-quiet () {
 #
 # Arg 1 = parameter name
 ##############################
-function restart_required (){
-	for i in ${CHECK_PARAMS_RESTART_REQ[@]}
-	do
-		LOWER_I=`echo $i | tr '[:upper:]' '[:lower:]'`
-		LOWER_1=`echo $1 | tr '[:upper:]' '[:lower:]'`
+function restart_required() {
+  for i in "${CHECK_PARAMS_RESTART_REQ[@]}"; do
+    LOWER_I=$(echo "$i" | tr '[:upper:]' '[:lower:]')
+    LOWER_1=$(echo "$1" | tr '[:upper:]' '[:lower:]')
 
-		if [ "$LOWER_I" = "$LOWER_1" ]
-		then
-			echo -e "\r\n!!! NOTICE !!!"
-			echo "Changes to parameter: `yellow && echo -n $1 && normal`"
-			echo "require a restart of the service to take effect."
-			echo "Restart now? YES or Enter to restart manually."
-			read RELOAD
-			if [ "$RELOAD" = "YES" ]
-			then
-				service ha-lizard restart
-				normal
-				exit 0
-			else
-				echo "Not restarting service. To restart the service type 'service ha-lizard restart'"
-				normal
-				exit 0
-			fi
-		fi
-	done
+    if [ "$LOWER_I" = "$LOWER_1" ]; then
+      echo -e "\r\n!!! NOTICE !!!"
+      echo "Changes to parameter: $(yellow && echo -n "$1" && normal)"
+      echo "require a restart of the service to take effect."
+      echo "Restart now? YES or Enter to restart manually."
+      read -r RELOAD
+      if [ "$RELOAD" = "YES" ]; then
+        service ha-lizard restart
+        normal
+        exit 0
+      else
+        echo "Not restarting service. To restart the service type 'service ha-lizard restart'"
+        normal
+        exit 0
+      fi
+    fi
+  done
 } #End function restart_required
 ###############################
-# Function is_binary validates 
+# Function is_binary validates
 # whether the passed in arg is
 # binary. Returns 0 on true
 # and 1 on false
 ###############################
-function is_binary () {
-	case $1 in
-		[0:1])
-			return 0
-			;;
-	
-		*)
-			return 1
-			;;
-	esac
+function is_binary() {
+  case $1 in
+  [0:1])
+    return 0
+    ;;
+
+  *)
+    return 1
+    ;;
+  esac
 }
 
 ###############################
@@ -339,13 +309,12 @@ function is_binary () {
 # a number between 1 and 3600
 # Returns 0 on true 1 on false
 ###############################
-function is_number () {
-	if [ $1 -gt 0 ]
-	then
-		return 0
-	else
-		return 1
-	fi
+function is_number() {
+  if [ "$1" -gt 0 ]; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 ###############################
@@ -356,409 +325,402 @@ function is_number () {
 # Parameter name
 # Value
 ###############################
-function validate () {
-	####################
-	# Check for spaces
-	####################
-	if [[ "$2" == *" "* ]]
-	then
-		red
-		echo "Values cannot contain spaces"
-		normal
-		exit 1
-	fi
+function validate() {
+  ####################
+  # Check for spaces
+  ####################
+  if [[ "$2" == *" "* ]]; then
+    red
+    echo "Values cannot contain spaces"
+    normal
+    exit 1
+  fi
 
-	########################
-	# Validate NULL value
-	########################
-	if [ -z $2 ]
-	then
-		for i in ${CHECK_PARAMS_NULL_ALLOWED[@]}
-		do
-			if [ "$i" = "$1" ]
-			then
-				local SUCCESS=1
-				break
-			else
-				local SUCCESS=0
-			fi
-		done
-	
-		if [ $SUCCESS -ne 1 ]
-		then
-			red
-			echo "Specified value for: $1 cannot be empty"
-			normal
-			exit 1
-		fi
-	fi
+  ########################
+  # Validate NULL value
+  ########################
+  if [ -z "$2" ]; then
+    for i in "${CHECK_PARAMS_NULL_ALLOWED[@]}"; do
+      if [ "$i" = "$1" ]; then
+        local SUCCESS=1
+        break
+      else
+        local SUCCESS=0
+      fi
+    done
 
-	########################
-	# Validate Binary param
-	########################
-	for i in ${CHECK_PARAMS_BIN[@]}
-	do
-		if [ "$i" = "$1" ]
-		then
-			if ! is_binary $2
-			then
-				red
-				echo "Specified value: $2 for $1 is invalid. Valid options for $1 are 0 or 1"
-				normal
-				exit 1
-			fi
-		fi
-	done
+    if [ "$SUCCESS" -ne 1 ]; then
+      red
+      echo "Specified value for: $1 cannot be empty"
+      normal
+      exit 1
+    fi
+  fi
 
-	#########################
-	# Validate numeric param
-	#########################		
-	for i in ${CHECK_PARAMS_NUM[@]}
-	do
-		if [ "$i" = "$1" ]
-		then
-			if ! is_number $2
-			then
-				red
-				echo "Specified value: $2 for $1 is invalid. Valid options for $1 must be numeric."
-				normal
-				exit 1
-			fi
-		fi
-	done
-	
-	###########################
-	# Validate email address
-	###########################
-	for i in ${CHECK_PARAMS_EMAIL[@]}
-	do
-		if [ "$i" = "$1" ]
-		then
-			case $2 in
-			*@*)
-				return 0
-				;;
-			*)
-				red
-				echo "Specified value: $2 for $1 is invalid. Must enter a valid email address."
-				normal
-				exit 1
-				;;
-			esac
-		fi
-	done
+  ########################
+  # Validate Binary param
+  ########################
+  for i in "${CHECK_PARAMS_BIN[@]}"; do
+    if [ "$i" = "$1" ]; then
+      if ! is_binary "$2"; then
+        red
+        echo "Specified value: $2 for $1 is invalid. Valid options for $1 are 0 or 1"
+        normal
+        exit 1
+      fi
+    fi
+  done
 
-	##########################
-	# Validate OP_MODE 1 or 2
-	##########################
-	if [ "$1" = "OP_MODE" ]
-	then
-		case $2 in
-			[1:2])
-				return 0
-				;;
-			*)
-				red
-				echo "Specified value: $2 for $1 is invalid. Valid options for $1 are 1 or 2"	
-				normal
-				exit 1
-				;;
-		esac
-	fi
+  #########################
+  # Validate numeric param
+  #########################
+  for i in "${CHECK_PARAMS_NUM[@]}"; do
+    if [ "$i" = "$1" ]; then
+      if ! is_number "$2"; then
+        red
+        echo "Specified value: $2 for $1 is invalid. Valid options for $1 must be numeric."
+        normal
+        exit 1
+      fi
+    fi
+  done
 
-	#########################
-	# Validate IP addresses
-	#########################
-	for i in ${CHECK_PARAMS_IP_ADDRESS[@]}
-	do
-		if [ "$i" = "$1" ]
-		then
-			#######################################
-			## Could be a list of : separaed IPs
-			## loop over each IP and validate
-			#######################################
-			for ip in $(echo $2 | tr ":" "\n")
-			do
-				validate_ip $ip
-				RETVAL=$?
-				if [ $RETVAL -ne 0 ]
-				then
-					red
-					echo "Invalid IP address [$ip] specified"
-					normal
-					exit 1
-				fi
-			done
-		fi
-	done
+  ###########################
+  # Validate email address
+  ###########################
+  for i in "${CHECK_PARAMS_EMAIL[@]}"; do
+    if [ "$i" = "$1" ]; then
+      case $2 in
+      *@*)
+        return 0
+        ;;
+      *)
+        red
+        echo "Specified value: $2 for $1 is invalid. Must enter a valid email address."
+        normal
+        exit 1
+        ;;
+      esac
+    fi
+  done
 
-	###########################
-	# Check if deprecated param
-	###########################
-	for i in ${CHECK_PARAMS_DEPRECATED[@]}
-	do
-		if [ "$1" = "$i" ]
-		then
-			echo -e "\r\n!!! WARNING !!!"
-			echo "$i is Deprecated - recommended setting is 0"
-			echo -e "Avoid setting to 1 unless you know what you are doing\r\n"
-			return 0
-		fi
-	done
+  ##########################
+  # Validate OP_MODE 1 or 2
+  ##########################
+  if [ "$1" = "OP_MODE" ]; then
+    case $2 in
+    [1:2])
+      return 0
+      ;;
+    *)
+      red
+      echo "Specified value: $2 for $1 is invalid. Valid options for $1 are 1 or 2"
+      normal
+      exit 1
+      ;;
+    esac
+  fi
+
+  #########################
+  # Validate IP addresses
+  #########################
+  for i in "${CHECK_PARAMS_IP_ADDRESS[@]}"; do
+    if [ "$i" = "$1" ]; then
+      #######################################
+      ## Could be a list of : separated IPs
+      ## loop over each IP and validate
+      #######################################
+      for ip in $(echo "$2" | tr ":" "\n"); do
+        validate_ip "$ip"
+        RETVAL=$?
+        if [ $RETVAL -ne 0 ]; then
+          red
+          echo "Invalid IP address [$ip] specified"
+          normal
+          exit 1
+        fi
+      done
+    fi
+  done
+
+  ###########################
+  # Check if deprecated param
+  ###########################
+  for i in "${CHECK_PARAMS_DEPRECATED[@]}"; do
+    if [ "$1" = "$i" ]; then
+      echo -e "\r\n!!! WARNING !!!"
+      echo "$i is Deprecated - recommended setting is 0"
+      echo -e "Avoid setting to 1 unless you know what you are doing\r\n"
+      return 0
+    fi
+  done
 
 } #End function validate
 
 ###################################
 # Function vm_ha_status - lists
-# all pool VMs with status of 
+# all pool VMs with status of
 # HA enabled for each VM
 ###################################
-function vm_ha_status () {
-	echo -e "Retreiving data.. please wait\r"
-	echo -e "HA-Enabled\tVM-UUID\tVM-Name" > ./tempfile
-	local VM_LIST_NO_CNTRL_DOM=$(xe vm-list is-a-snapshot=false is-control-domain=false --minimal | tr ',' '\n')
+function vm_ha_status() {
+  echo -e "Retrieving data.. please wait\r"
+  echo -e "HA-Enabled\tVM-UUID\tVM-Name" >./tempfile
 
-	for i in ${VM_LIST_NO_CNTRL_DOM[*]}
-	do
-		STATUS=`xe vm-param-get uuid=$i param-name=other-config param-key=XenCenter.CustomFields.$XC_FIELD_NAME`
-		if [ $? != "0" ]
-		then
-			STATUS="unset"
-		fi
+  # Get list of VMs excluding snapshots and control domains
+  local VM_LIST_NO_CNTRL_DOM
+  VM_LIST_NO_CNTRL_DOM=$(xe vm-list is-a-snapshot=false is-control-domain=false --minimal | tr ',' '\n')
 
-		local NAME=`xe vm-param-get uuid=$i param-name=name-label`
-		echo -e "$STATUS\t$i\t$NAME" >> ./tempfile
-	done
-	
-	local PARAM=OP_MODE && PARAM=$PREFIX$PARAM
-	local MODE=`xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=$PARAM`
-	if [ $? = "0" ]
-	then
-		if [ $MODE = "1" ]
-		then
-			yellow
-			echo "Pool OP_MODE is set to 1 - all VMs belonging to managed appliances"
-			echo "are managed regardless of HA-enabled setting within each VM"
-			normal
-		elif  [ $MODE = "2" ]
-		then
-			local GLOB_HA=GLOBAL_VM_HA && GLOB_HA=$PREFIX$GLOB_HA
-			local GLOB_HA_VAL=`xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=$GLOB_HA`
-			yellow
-			if [ $GLOB_HA_VAL = "1" ]
-			then
-				echo "GLOBAL_VM_HA is set to 1 - HA-enabled setting not required for each VM"
-			else
-				echo "Pool OP_MODE is set to 2 - all VMs that require HA should have HA enabled."
-				echo "Use [ha-cfg set-vm-ha ] to set HA status on VMs."
-			fi
-			normal
-		fi
-	else
-		red
-		echo "Error retrieving global configuation parameter <OP_MODE>, check configuration"
-		normal
-	fi
+  # Iterate through each VM UUID
+  for i in "${VM_LIST_NO_CNTRL_DOM[@]}"; do
+    # Fetch the HA status for the VM
+    local STATUS
+    if ! STATUS=$(xe vm-param-get uuid="$i" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME"); then
+      STATUS="unset"
+    fi
 
-	echo
-	cat ./tempfile | column -ts $'\t'
-	rm -f ./tempfile
+    # Get the VM's name
+    local NAME
+    NAME=$(xe vm-param-get uuid="$i" param-name=name-label)
+
+    # Write the VM status to tempfile
+    echo -e "$STATUS\t$i\t$NAME" >>./tempfile
+  done
+
+  # Fetch global pool configuration and OP_MODE
+  local PARAM="OP_MODE"
+  local MODE
+  PARAM="$PREFIX$PARAM"
+  if MODE=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key="$PARAM"); then
+    case "$MODE" in
+    1)
+      yellow
+      echo "Pool OP_MODE is set to 1 - all VMs belonging to managed appliances"
+      echo "are managed regardless of HA-enabled setting within each VM"
+      normal
+      ;;
+    2)
+      local GLOB_HA="GLOBAL_VM_HA"
+      GLOB_HA="$PREFIX$GLOB_HA"
+      local GLOB_HA_VAL
+      if GLOB_HA_VAL=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key="$GLOB_HA"); then
+        yellow
+        if [[ "$GLOB_HA_VAL" == "1" ]]; then
+          echo "GLOBAL_VM_HA is set to 1 - HA-enabled setting not required for each VM"
+        else
+          echo "Pool OP_MODE is set to 2 - all VMs that require HA should have HA enabled."
+          echo "Use [ha-cfg set-vm-ha ] to set HA status on VMs."
+        fi
+        normal
+      else
+        red
+        echo "Error retrieving global configuration parameter <$GLOB_HA>, check configuration"
+        normal
+      fi
+      ;;
+    *)
+      red
+      echo "Unknown OP_MODE value $MODE"
+      normal
+      ;;
+    esac
+  else
+    red
+    echo "Error retrieving global configuration parameter <OP_MODE>, check configuration"
+    normal
+  fi
+
+  echo
+  column -ts $'\t' <./tempfile
+  rm -f ./tempfile
 } # End function vm_ha_status
-
-
 ######################################
 # Function set-vm-ha
-# Enable / Disable HA for passed in 
+# Enable / Disable HA for passed in
 # vm name (uses vm name label)
 #
 # Arg 1 = vm name
 # Arg 2 = true or false
 ######################################
-function set-vm-ha () {
-	if [[ -z "$2" ]] || [[ -z "$3" ]]
-	then
-		red
-		echo "Missing parameters. set-vm usage: <ha-cfg set-vm NAME-LABEL <true or false>"
-		echo "If name-label includes spaces, wrap with quotes like 'this'"
-		normal
-		exit 1
-	fi
-	
-	if [ $4 ]
-	then
-		red
-		echo "Too many arguments - check to ensure there are no spaces in name-label or wrap in single quotes"
-		normal
-		exit 1
-	fi
-	
-	case $3 in
-		true)
-			;;
-		false)
-			;;
-		*)
-			red
-			echo "Invalid setting for enabling or disabling HA on vm: $2. Entry must be <true> or <false>"
-			normal
-			exit 1
-			;;	
-	esac
+function set-vm-ha() {
+  if [[ -z "$2" ]] || [[ -z "$3" ]]; then
+    red
+    echo "Missing parameters. set-vm usage: <ha-cfg set-vm NAME-LABEL <true or false>"
+    echo "If name-label includes spaces, wrap with quotes like 'this'"
+    normal
+    exit 1
+  fi
 
-	VM_UUID=`xe vm-list name-label="$2" --minimal`
-	if [ -z $VM_UUID ]
-	then
-		red
-		echo "Failed to retrieve UUID for VM: $2 - check the spelling of your VM name label"
-		normal
-		exit 1
-	else
-		echo "UUID for $2 found: $VM_UUID"
-	fi
-	
-	echo "Updating VM:$2 UUID: $VM_UUID to status: $3"
-	`xe vm-param-set uuid=$VM_UUID other-config:XenCenter.CustomFields.$XC_FIELD_NAME=$3`
-	if [ $? = "0" ]
-	then
-		green
-		echo "Success: VM: $2 updated to HA status: $3"
-		WAIT=`get | grep MONITOR_DELAY | awk -F "=" '{print $2}'`
-		echo "Wait at least $WAIT seconds for changes to be applied"
-		normal
-	else
-		red
-		echo "Error in setting VM: $2 to value: $3"
-		normal
-	fi
+  if [ "$4" ]; then
+    red
+    echo "Too many arguments - check to ensure there are no spaces in name-label or wrap in single quotes"
+    normal
+    exit 1
+  fi
+
+  case $3 in
+  true) ;;
+  false) ;;
+  *)
+    red
+    echo "Invalid setting for enabling or disabling HA on vm: $2. Entry must be <true> or <false>"
+    normal
+    exit 1
+    ;;
+  esac
+
+  VM_UUID=$(xe vm-list name-label="$2" --minimal)
+  if [ -z "$VM_UUID" ]; then
+    red
+    echo "Failed to retrieve UUID for VM: $2 - check the spelling of your VM name label"
+    normal
+    exit 1
+  else
+    echo "UUID for $2 found: $VM_UUID"
+  fi
+
+  echo "Updating VM:$2 UUID: $VM_UUID to status: $3"
+  if [ "$(xe vm-param-set uuid="$VM_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"="$3")" = "0" ]; then
+    green
+    echo "Success: VM: $2 updated to HA status: $3"
+    WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
+    echo "Wait at least $WAIT seconds for changes to be applied"
+    normal
+  else
+    red
+    echo "Error in setting VM: $2 to value: $3"
+    normal
+  fi
 } # End function set-vm-ha
 
-function service_execute () {
-	######################################################################
-	## Function service_execute
-	## Transparently calls either System V or systemd (via systemctl)
-	## to execute start,stop,restart,status on dameons
-	##
-	## Arg1=the service name
-	## Arg2=the action - one of [start|stop|restart|status]
-	##
-	## Returns: 0 or non-zero exit status per LSB
-	##
-	## LSB tries to set standard exit statuses for init script which
-	## are not explicitly followed by systemctl. We will try to follow
-	## LSB and make general assumptions where necessary
-	##
-	## This wrapper
-	##
-	##
-	## 0    program is running or service is OK
-	## 1    program is dead and /var/run pid file exists
-	## 2    program is dead and /var/lock lock file exists
-	## 3    program is not running
-	## 4    program or service status is unknown
-	## 5-99 reserved for future LSB use
-	## 100-149  reserved for distribution use
-	## 150-199  reserved for application use
-	## 200-254  reserved
-	## services control wrapper - start/stop/retstart/status
-	#####################################################################
+function service_execute() {
+  ######################################################################
+  ## Function service_execute
+  ## Transparently calls either System V or systemd (via systemctl)
+  ## to execute start,stop,restart,status on daemons
+  ##
+  ## Arg1=the service name
+  ## Arg2=the action - one of [start|stop|restart|status]
+  ##
+  ## Returns: 0 or non-zero exit status per LSB
+  ##
+  ## LSB tries to set standard exit statuses for init script which
+  ## are not explicitly followed by systemctl. We will try to follow
+  ## LSB and make general assumptions where necessary
+  ##
+  ## This wrapper
+  ##
+  ##
+  ## 0    program is running or service is OK
+  ## 1    program is dead and /var/run pid file exists
+  ## 2    program is dead and /var/lock lock file exists
+  ## 3    program is not running
+  ## 4    program or service status is unknown
+  ## 5-99 reserved for future LSB use
+  ## 100-149  reserved for distribution use
+  ## 150-199  reserved for application use
+  ## 200-254  reserved
+  ## services control wrapper - start/stop/restart/status
+  #####################################################################
 
-	local SYSTEM_V_SCRIPTS='/etc/init.d/'
-	####################################
-	## Am I System V or systemctl
-	####################################
+  local SYSTEM_V_SCRIPTS='/etc/init.d/'
+  ####################################
+  ## Am I System V or systemctl
+  ####################################
 
-	if [ $2 = "is-enabled" ]
-	then
-		local EXECUTE_SERVICE=$(which chkconfig)
-		RESULT=$(${EXECUTE_SERVICE} $1)
-		RETVAL=$?
-		return $RETVAL
-	fi
+  if [ "$2" = "is-enabled" ]; then
+    local EXECUTE_SERVICE
+    EXECUTE_SERVICE=$(which chkconfig)
+    RESULT=$(${EXECUTE_SERVICE} "$1")
+    RETVAL=$?
+    return $RETVAL
+  fi
 
-	if [ -e $SYSTEM_V_SCRIPTS/$1 ]
-	then
-		############################
-		## using system V init
-		############################
-		local EXECUTE_SERVICE=$(which service)
-		RESULT=$(${EXECUTE_SERVICE} $1 $2)
-		RETVAL=$?
-		SERVICE_EXECUTE_RESULT=$RESULT
-		echo "$SERVICE_EXECUTE_RESULT"
-		return $RETVAL
-	else
-		local EXECUTE_SERVICE=$(which systemctl)
-		RESULT=$(${EXECUTE_SERVICE} $2 $1)
-		RETVAL=$?
-		SERVICE_EXECUTE_RESULT=$RESULT
-		echo "$SERVICE_EXECUTE_RESULT"
-		return $RETVAL
-	fi
+  if [ -e $SYSTEM_V_SCRIPTS/"$1" ]; then
+    ############################
+    ## using system V init
+    ############################
+    local EXECUTE_SERVICE
+    EXECUTE_SERVICE=$(which service)
+    RESULT=$(${EXECUTE_SERVICE} "$1" "$2")
+    RETVAL=$?
+    SERVICE_EXECUTE_RESULT=$RESULT
+    echo "$SERVICE_EXECUTE_RESULT"
+    return $RETVAL
+  else
+    local EXECUTE_SERVICE
+    EXECUTE_SERVICE=$(which systemctl)
+    RESULT=$(${EXECUTE_SERVICE} "$2" "$1")
+    RETVAL=$?
+    SERVICE_EXECUTE_RESULT=$RESULT
+    echo "$SERVICE_EXECUTE_RESULT"
+    return $RETVAL
+  fi
 } # End function service_execute
+function status() {
+  if [ ${TIMEOUT} = "true" ]; then
+    local STATUS=TIMEOUT
+  else
+    local STATUS
+    STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+  fi
 
-function status () {
-	if [ ${TIMEOUT} = "true" ]
-	then
-		local STATUS=TIMEOUT
-	else
-		local STATUS=$(xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=XenCenter.CustomFields.$XC_FIELD_NAME)
-	fi
+  STATUS_RETVAL=$?
+  local MY_ROLE
+  MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
 
-	STATUS_RETVAL=$?
-	local MY_ROLE=$(cat /etc/xensource/pool.conf | awk -F ':' {'print $1'})
-	service_execute ${PROG_NAME} status &> /dev/null
-	local SERVICE_STATUS_RESULT=$?
-	case $SERVICE_STATUS_RESULT in
-		0)
-			local SERVICE_STATUS="${PROG_NAME} is running [ OK ]"
-			;;
-		1)
-			local SERVICE_STATUS="${PROG_NAME} is dead and /var/run pid file exists [ ERROR ]"
-			;;
-		2)
-			local SERVICE_STATUS="${PROG_NAME} program is dead and /var/lock lock file exists [ ERROR ]"
-			;;
-		3)
-			local SERVICE_STATUS="${PROG_NAME} is not running [ STOPPED ]"
-			;;
-	esac
+  service_execute "${PROG_NAME} status" &>/dev/null
+  local SERVICE_STATUS_RESULT=$?
+  case $SERVICE_STATUS_RESULT in
+  0)
+    local SERVICE_STATUS="${PROG_NAME} is running [ OK ]"
+    ;;
+  1)
+    local SERVICE_STATUS="${PROG_NAME} is dead and /var/run pid file exists [ ERROR ]"
+    ;;
+  2)
+    local SERVICE_STATUS="${PROG_NAME} program is dead and /var/lock lock file exists [ ERROR ]"
+    ;;
+  3)
+    local SERVICE_STATUS="${PROG_NAME} is not running [ STOPPED ]"
+    ;;
+  esac
 
-	service_execute ${PROG_NAME}-watchdog status &> /dev/null
-	local WATCHDOG_STATUS_RESULT=$?
-	case $WATCHDOG_STATUS_RESULT in
-		0)
-			local WATCHDOG_STATUS="${PROG_NAME}-watchdog is running [ OK ]"
-			;;
-		1)
-			local WATCHDOG_STATUS="${PROG_NAME}-watchdog is dead and /var/run pid file exists [ ERROR ]"
-			;;
-		2)
-			local WATCHDOG_STATUS="${PROG_NAME}-watchdog program is dead and /var/lock lock file exists [ ERROR ]"
-			;;
-		3)
-			local WATCHDOG_STATUS="${PROG_NAME}-watchdog is not running [ STOPPED ]"
-			;;
-	esac
+  service_execute "${PROG_NAME}-watchdog status" &>/dev/null
+  local WATCHDOG_STATUS_RESULT=$?
+  case $WATCHDOG_STATUS_RESULT in
+  0)
+    local WATCHDOG_STATUS="${PROG_NAME}-watchdog is running [ OK ]"
+    ;;
+  1)
+    local WATCHDOG_STATUS="${PROG_NAME}-watchdog is dead and /var/run pid file exists [ ERROR ]"
+    ;;
+  2)
+    local WATCHDOG_STATUS="${PROG_NAME}-watchdog program is dead and /var/lock lock file exists [ ERROR ]"
+    ;;
+  3)
+    local WATCHDOG_STATUS="${PROG_NAME}-watchdog is not running [ STOPPED ]"
+    ;;
+  esac
 
-	local MY_ROLE=$(cat /etc/xensource/pool.conf | awk -F ':' {'print $1'})
-	local HOST_UUID=$(cat ${STATE_FILES}/local_host_uuid)
-	local MASTER_UUID=$(cat ${STATE_FILES}/master_uuid)
-	local OP_MODE_TEXT=''
+  local MY_ROLE
+  MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
+  local HOST_UUID
+  HOST_UUID=$(cat ${STATE_FILES}/local_host_uuid)
+  local MASTER_UUID
+  MASTER_UUID=$(cat ${STATE_FILES}/master_uuid)
+  local OP_MODE_TEXT=''
 
-	if [ $OP_MODE -eq 1 ]
-	then
-		OP_MODE_TEXT="Managing Appliances"
-	elif [ "$OP_MODE" -eq 2 ]
-	then
-		if [ "$GLOBAL_VM_HA" -eq 0 ]
-		then
-			OP_MODE_TEXT="Managing Individual VMs in Pool"
-		elif [ "$GLOBAL_VM_HA" -eq 1 ]
-		then
-			OP_MODE_TEXT="Managing All VMs in Pool"
-		fi
-	fi
-	local STATUS_MESSAGE=$(echo -e "\
+  if [ "$OP_MODE" -eq 1 ]; then
+    OP_MODE_TEXT="Managing Appliances"
+  elif [ "$OP_MODE" -eq 2 ]; then
+    if [ "$GLOBAL_VM_HA" -eq 0 ]; then
+      OP_MODE_TEXT="Managing Individual VMs in Pool"
+    elif [ "$GLOBAL_VM_HA" -eq 1 ]; then
+      OP_MODE_TEXT="Managing All VMs in Pool"
+    fi
+  fi
+  local STATUS_MESSAGE
+  STATUS_MESSAGE=$(echo -e "\
 ${PROG_NAME} Version:@ $VERSION\n\
 Operating Mode:@ Mode [ $OP_MODE ] $OP_MODE_TEXT\n\
 Host Role:@ $MY_ROLE\n\
@@ -767,327 +729,469 @@ Host UUID:@ $HOST_UUID\n\
 Master UUID:@ $MASTER_UUID\n\
 Daemon Status:@ $SERVICE_STATUS\n\
 Watchdog Status:@ $WATCHDOG_STATUS\n\
-HA Enabled:@ $STATUS\
-")
+HA Enabled:@ $STATUS")
 
-	local STATUS_MESSAGE_FORMATTED=$(echo "$STATUS_MESSAGE" | column -t -s '@')
-	make_box "$STATUS_MESSAGE_FORMATTED"
+  local STATUS_MESSAGE_FORMATTED
+  STATUS_MESSAGE_FORMATTED=$(echo "$STATUS_MESSAGE" | column -t -s '@')
+  make_box "$STATUS_MESSAGE_FORMATTED"
 
-	if [ "${TIMEOUT}" = "true" ]
-	then
-		echo -n "Pool HA Status: "
-		red
-		echo "TIMEOUT"
-		normal
-		exit 0
-	fi
+  if [ "${TIMEOUT}" = "true" ]; then
+    echo -n "Pool HA Status: "
+    red
+    echo "TIMEOUT"
+    normal
+    exit 0
+  fi
 
-	echo -n "Pool HA Status: "
-	if [ "$STATUS_RETVAL" != "0" ]
-	then
-		red
-		red
-		echo -n "FAILED to detect status. Check configuration"
-		normal
-	elif [ $STATUS = "false" ]
-	then	
-		red
-		echo "DISABLED"
-		normal
-		echo "ha-lizard is disabled. Enable? <yes or Enter to quit>"
-		read ENABLE
-		if [ "$ENABLE" = "yes" ]
-		then
-			xe pool-param-set uuid=$POOL_UUID other-config:XenCenter.CustomFields.$XC_FIELD_NAME=true
-			if [ $? = "0" ]
-			then
-				WAIT=`get | grep MONITOR_DELAY | awk -F "=" '{print $2}'`
-				echo "Success. HA enabled. "
-			else
-				exit 0
-			fi
-		fi
-	
-	elif [ $STATUS = "true" ]
-	then
-		green
-		echo "ENABLED"
-		#############################
-		# Check if this host has self
-		# fenced and HA is forced off
-		#############################
-		if [ -a $STATE_PATH/fenced_slave ]
-		then
-			yellow
-			echo -e "\r\nNOTICE: This host has encountered an error and HA operation has been suspended."
-			echo "To restore HA on this host, first ensure the pool is fully operational"
-			echo "and the issue that caused this host to be ejected has been resolved"
-			echo "HA can be reactivated by running /etc/ha-lizard/scripts/recover_fenced_host"
-		fi
-	
-		normal
-		echo "ha-lizard is enabled. Disable? <yes or Enter to quit>"
-		read DISABLE
-		if [ "$DISABLE" = "yes" ]
-		then
-			xe pool-param-set uuid=$POOL_UUID other-config:XenCenter.CustomFields.$XC_FIELD_NAME=false
-			if [ $? = "0" ]
-			then
-				WAIT=`get | grep MONITOR_DELAY | awk -F "=" '{print $2}'`
-				echo "Success. ha-lizard disabled. Wait at least $WAIT seconds for changes to apply to all hosts"
-			else
-				exit 0
-			fi
-		fi
-	
-	else
-		red
-		echo "UNKNOWN"
-		normal
-		echo "$XC_FIELD_NAME is not set or set to an invalid value."
-		echo "Enter <true> to enable or <false> to disable"
-		read UNKNOWN
-		if [ "$UNKNOWN" = "false" ]
-		then
-			xe pool-param-set uuid=$POOL_UUID other-config:XenCenter.CustomFields.$XC_FIELD_NAME=false
-			if [ $? = "0" ]
-			then
-				echo "Success. ha-lizard disabled"
-			else
-				exit 0
-			fi
-		elif [ "$UNKNOWN" = "true" ]
-		then
-			xe pool-param-set uuid=$POOL_UUID other-config:XenCenter.CustomFields.$XC_FIELD_NAME=true
-			if [ $? = "0" ]
-			then
-				echo "Success. ha-lizard enabled"
-			else
-				exit 0
-			fi
-		fi
-	fi
+  echo -n "Pool HA Status: "
+  if [ "$STATUS_RETVAL" != "0" ]; then
+    red
+    red
+    echo -n "FAILED to detect status. Check configuration"
+    normal
+  elif [ "$STATUS" = "false" ]; then
+    red
+    echo "DISABLED"
+    normal
+    echo "ha-lizard is disabled. Enable? <yes or Enter to quit>"
+    read -r ENABLE
+    if [ "$ENABLE" = "yes" ]; then
+      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true)" = "0" ]; then
+        WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
+        echo "Success. HA enabled. "
+      else
+        exit 0
+      fi
+    fi
+
+  elif [ "$STATUS" = "true" ]; then
+    green
+    echo "ENABLED"
+    #############################
+    # Check if this host has self
+    # fenced and HA is forced off
+    #############################
+    if [ -a "$STATE_PATH/fenced_slave" ]; then
+      yellow
+      echo -e "\r\nNOTICE: This host has encountered an error and HA operation has been suspended."
+      echo "To restore HA on this host, first ensure the pool is fully operational"
+      echo "and the issue that caused this host to be ejected has been resolved"
+      echo "HA can be reactivated by running /etc/ha-lizard/scripts/recover_fenced_host"
+    fi
+
+    normal
+    echo "ha-lizard is enabled. Disable? <yes or Enter to quit>"
+    read -r DISABLE
+    if [ "$DISABLE" = "yes" ]; then
+      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false)" = "0" ]; then
+        WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
+        echo "Success. ha-lizard disabled. Wait at least $WAIT seconds for changes to apply to all hosts"
+      else
+        exit 0
+      fi
+    fi
+
+  else
+    red
+    echo "UNKNOWN"
+    normal
+    echo "$XC_FIELD_NAME is not set or set to an invalid value."
+    echo "Enter <true> to enable or <false> to disable"
+    read -r UNKNOWN
+    if [ "$UNKNOWN" = "false" ]; then
+
+      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false)" = "0" ]; then
+        echo "Success. ha-lizard disabled"
+      else
+        exit 0
+      fi
+    elif [ "$UNKNOWN" = "true" ]; then
+      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true)" = "0" ]; then
+        echo "Success. ha-lizard enabled"
+      else
+        exit 0
+      fi
+    fi
+  fi
 
 } #End function status
 
-function cluster_status () {
-	if [ ! -e /usr/bin/iscsi-cfg ]
-	then
-		echo "Host is not part of an HA-Lizard cluster. exiting..."
-		exit 0
-	fi
+function cluster_status() {
+  if [ ! -e /usr/bin/iscsi-cfg ]; then
+    echo "Host is not part of an HA-Lizard cluster. exiting..."
+    exit 0
+  fi
 
-	if [ ${TIMEOUT} = "true" ]
-	then
-		local STATUS=TIMEOUT
-	else
-		local STATUS=$(xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=XenCenter.CustomFields.$XC_FIELD_NAME)
-	fi
-	if [ "$STATUS" = "false" ]
-	then
-		HA_STATUS=$(yellow; echo -n "Disabled"; normal)
-	elif [ "$STATUS" = "true" ]
-	then
-		HA_STATUS=$(green; echo -n "Enabled"; normal)
-	else
-		#Something is really wrong
-		HA_STATUS=$(red; echo -n "ERROR - Unknown Status [$STATUS]"; normal)
-	fi
+  if [ ${TIMEOUT} = "true" ]; then
+    local STATUS=TIMEOUT
+  else
+    local STATUS
+    STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+  fi
+  if [ "$STATUS" = "false" ]; then
+    HA_STATUS=$(
+      yellow
+      echo -n "Disabled"
+      normal
+    )
+  elif [ "$STATUS" = "true" ]; then
+    HA_STATUS=$(
+      green
+      echo -n "Enabled"
+      normal
+    )
+  else
+    #Something is really wrong
+    HA_STATUS=$(
+      red
+      echo -n "ERROR - Unknown Status [$STATUS]"
+      normal
+    )
+  fi
 
-	STATUS_RETVAL=$?
-	local MY_ROLE=$(cat /etc/xensource/pool.conf | awk -F ':' {'print $1'})
+  STATUS_RETVAL=$?
+  local MY_ROLE
+  MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
 
-	service_execute ${PROG_NAME} status &> /dev/null
-	local SERVICE_STATUS_RESULT=$?
-	case $SERVICE_STATUS_RESULT in
-		0)
-			local HA_SERVICE_STATUS=$(green; echo -n "Running"; normal)
-			;;
-		1)
-			local HA_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		2)
-			local HA_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		3)
-			local HA_SERVICE_STATUS=$(yellow; echo -n "Stopped"; normal)
-			;;
-	esac
+  service_execute "${PROG_NAME}" status &>/dev/null
+  local SERVICE_STATUS_RESULT=$?
+  local HA_SERVICE_STATUS
+  case $SERVICE_STATUS_RESULT in
+  0)
+    HA_SERVICE_STATUS=$(
+      green
+      echo -n "Running"
+      normal
+    )
+    ;;
+  1)
+    HA_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  2)
+    HA_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  3)
+    HA_SERVICE_STATUS=$(
+      yellow
+      echo -n "Stopped"
+      normal
+    )
+    ;;
+  esac
 
-	service_execute ${PROG_NAME}-watchdog status &> /dev/null
-	local WATCHDOG_STATUS_RESULT=$?
-	case $WATCHDOG_STATUS_RESULT in
-		0)
-			local HA_WATCHDOG_STATUS=$(green; echo -n "Running"; normal)
-			;;
-		1)
-			local HA_WATCHDOG_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		2)
-			local HA_WATCHDOG_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		3)
-			local HA_WATCHDOG_STATUS=$(yellow; echo -n "Stopped"; normal)
-			;;
-	esac
+  service_execute "${PROG_NAME}"-watchdog status &>/dev/null
+  local WATCHDOG_STATUS_RESULT=$?
+  local HA_WATCHDOG_STATUS
+  case $WATCHDOG_STATUS_RESULT in
+  0)
+    HA_WATCHDOG_STATUS=$(
+      green
+      echo -n "Running"
+      normal
+    )
+    ;;
+  1)
+    HA_WATCHDOG_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  2)
+    HA_WATCHDOG_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  3)
+    HA_WATCHDOG_STATUS=$(
+      yellow
+      echo -n "Stopped"
+      normal
+    )
+    ;;
+  esac
 
-	service_execute iscsi-ha status &> /dev/null
-	local SERVICE_STATUS_RESULT=$?
-	case $SERVICE_STATUS_RESULT in
-		0)
-			local ST_SERVICE_STATUS=$(green; echo -n "Running"; normal)
-			;;
-		1)
-			local ST_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		2)
-			local ST_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		3)
-			local ST_SERVICE_STATUS=$(yellow; echo -n "Stopped"; normal)
-			;;
-	esac
+  service_execute iscsi-ha status &>/dev/null
+  local SERVICE_STATUS_RESULT=$?
+  local ST_SERVICE_STATUS
+  case $SERVICE_STATUS_RESULT in
+  0)
+    ST_SERVICE_STATUS=$(
+      green
+      echo -n "Running"
+      normal
+    )
+    ;;
+  1)
+    ST_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  2)
+    ST_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  3)
+    ST_SERVICE_STATUS=$(
+      yellow
+      echo -n "Stopped"
+      normal
+    )
+    ;;
+  esac
 
-	service_execute iscsi-ha-watchdog status &> /dev/null
-	local WATCHDOG_STATUS_RESULT=$?
-	case $WATCHDOG_STATUS_RESULT in
-		0)
-			local ST_WATCHDOG_STATUS=$(green; echo -n "Running"; normal)
-			;;
-		1)
-			local ST_WATCHDOG_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		2)
-			local ST_WATCHDOG_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		3)
-			local ST_WATCHDOG_STATUS=$(yellow; echo -n "Stopped"; normal)
-			;;
-	esac
+  service_execute iscsi-ha-watchdog status &>/dev/null
+  local WATCHDOG_STATUS_RESULT=$?
+  local ST_WATCHDOG_STATUS
+  case $WATCHDOG_STATUS_RESULT in
+  0)
+    ST_WATCHDOG_STATUS=$(
+      green
+      echo -n "Running"
+      normal
+    )
+    ;;
+  1)
+    ST_WATCHDOG_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  2)
+    ST_WATCHDOG_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  3)
+    ST_WATCHDOG_STATUS=$(
+      yellow
+      echo -n "Stopped"
+      normal
+    )
+    ;;
+  esac
 
-	service_execute tgtd status &> /dev/null
-	local WATCHDOG_STATUS_RESULT=$?
-	case $WATCHDOG_STATUS_RESULT in
-		0)
-			local TGT_SERVICE_STATUS=$(green; echo -n "Running"; normal)
-			;;
-		1)
-			local TGT_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		2)
-			local TGT_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		3)
-			local TGT_SERVICE_STATUS=$(yellow; echo -n "Stopped"; normal)
-			;;
-	esac
+  service_execute tgtd status &>/dev/null
+  local WATCHDOG_STATUS_RESULT=$?
+  local TGT_SERVICE_STATUS
+  case $WATCHDOG_STATUS_RESULT in
+  0)
+    TGT_SERVICE_STATUS=$(
+      green
+      echo -n "Running"
+      normal
+    )
+    ;;
+  1)
+    TGT_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  2)
+    TGT_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  3)
+    TGT_SERVICE_STATUS=$(
+      yellow
+      echo -n "Stopped"
+      normal
+    )
+    ;;
+  esac
 
-	service_execute drbd status &> /dev/null
-	local WATCHDOG_STATUS_RESULT=$?
-	case $WATCHDOG_STATUS_RESULT in
-		0)
-			local DRBD_SERVICE_STATUS=$(green; echo -n "Running"; normal)
-			;;
-		1)
-			local DRBD_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		2)
-			local DRBD_SERVICE_STATUS=$(red; echo -n "Dead"; normal)
-			;;
-		3)
-			local DRBD_SERVICE_STATUS=$(yellow; echo -n "Stopped"; normal)
-			;;
-	esac
+  service_execute drbd status &>/dev/null
+  local WATCHDOG_STATUS_RESULT=$?
+  local DRBD_SERVICE_STATUS
+  case $WATCHDOG_STATUS_RESULT in
+  0)
+    DRBD_SERVICE_STATUS=$(
+      green
+      echo -n "Running"
+      normal
+    )
+    ;;
+  1)
+    DRBD_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  2)
+    DRBD_SERVICE_STATUS=$(
+      red
+      echo -n "Dead"
+      normal
+    )
+    ;;
+  3)
+    DRBD_SERVICE_STATUS=$(
+      yellow
+      echo -n "Stopped"
+      normal
+    )
+    ;;
+  esac
 
-	systemctl is-enabled ha-lizard &> /dev/null
-	AUTO_START_STATUS=$?
-	if [ $AUTO_START_STATUS -ne 0 ]
-	then
-		HA_AUTO_START=$(red; echo -n "Disabled"; normal)
-	else
-		HA_AUTO_START=$(green; echo -n "Enabled"; normal)
-	fi
+  systemctl is-enabled ha-lizard &>/dev/null
+  AUTO_START_STATUS=$?
+  if [ $AUTO_START_STATUS -ne 0 ]; then
+    HA_AUTO_START=$(
+      red
+      echo -n "Disabled"
+      normal
+    )
+  else
+    HA_AUTO_START=$(
+      green
+      echo -n "Enabled"
+      normal
+    )
+  fi
 
-	systemctl is-enabled ha-lizard-watchdog &> /dev/null
-	AUTO_START_STATUS=$?
-	if [ $AUTO_START_STATUS -ne 0 ]
-	then
-		HA_WATCHDOG_AUTO_START=$(red; echo -n "Disabled"; normal)
-	else
-		HA_WATCHDOG_AUTO_START=$(green; echo -n "Enabled"; normal)
-	fi
+  systemctl is-enabled ha-lizard-watchdog &>/dev/null
+  AUTO_START_STATUS=$?
+  if [ $AUTO_START_STATUS -ne 0 ]; then
+    HA_WATCHDOG_AUTO_START=$(
+      red
+      echo -n "Disabled"
+      normal
+    )
+  else
+    HA_WATCHDOG_AUTO_START=$(
+      green
+      echo -n "Enabled"
+      normal
+    )
+  fi
 
-	systemctl is-enabled iscsi-ha &> /dev/null
-	AUTO_START_STATUS=$?
-	if [ $AUTO_START_STATUS -ne 0 ]
-	then
-		ST_AUTO_START=$(red; echo -n "Disabled"; normal)
-	else
-		ST_AUTO_START=$(green; echo -n "Enabled"; normal)
-	fi
+  systemctl is-enabled iscsi-ha &>/dev/null
+  AUTO_START_STATUS=$?
+  if [ $AUTO_START_STATUS -ne 0 ]; then
+    ST_AUTO_START=$(
+      red
+      echo -n "Disabled"
+      normal
+    )
+  else
+    ST_AUTO_START=$(
+      green
+      echo -n "Enabled"
+      normal
+    )
+  fi
 
-	systemctl is-enabled iscsi-ha-watchdog &> /dev/null
-	AUTO_START_STATUS=$?
-	if [ $AUTO_START_STATUS -ne 0 ]
-	then
-		ST_WATCHDOG_AUTO_START=$(red; echo -n "Disabled"; normal)
-	else
-		ST_WATCHDOG_AUTO_START=$(green; echo -n "Enabled"; normal)
-	fi
+  systemctl is-enabled iscsi-ha-watchdog &>/dev/null
+  AUTO_START_STATUS=$?
+  if [ $AUTO_START_STATUS -ne 0 ]; then
+    ST_WATCHDOG_AUTO_START=$(
+      red
+      echo -n "Disabled"
+      normal
+    )
+  else
+    ST_WATCHDOG_AUTO_START=$(
+      green
+      echo -n "Enabled"
+      normal
+    )
+  fi
 
-	service_execute tgtd is-enabled &> /dev/null
-	AUTO_START_STATUS=$?
-	if [ $AUTO_START_STATUS -ne 0 ]
-	then
-		TGT_AUTO_START=$(green; echo -n "Disabled"; normal)
-	else
-		TGT_AUTO_START=$(red; echo -n "Enabled"; normal)
-	fi
+  service_execute tgtd is-enabled &>/dev/null
+  AUTO_START_STATUS=$?
+  if [ $AUTO_START_STATUS -ne 0 ]; then
+    TGT_AUTO_START=$(
+      green
+      echo -n "Disabled"
+      normal
+    )
+  else
+    TGT_AUTO_START=$(
+      red
+      echo -n "Enabled"
+      normal
+    )
+  fi
 
-	service_execute drbd is-enabled &> /dev/null
-	AUTO_START_STATUS=$?
-	if [ $AUTO_START_STATUS -ne 0 ]
-	then
-		DRBD_AUTO_START=$(green; echo -n "Disabled"; normal)
-	else
-		DRBD_AUTO_START=$(red; echo -n "Enabled"; normal)
-	fi
+  service_execute drbd is-enabled &>/dev/null
+  AUTO_START_STATUS=$?
+  if [ $AUTO_START_STATUS -ne 0 ]; then
+    DRBD_AUTO_START=$(
+      green
+      echo -n "Disabled"
+      normal
+    )
+  else
+    DRBD_AUTO_START=$(
+      red
+      echo -n "Enabled"
+      normal
+    )
+  fi
 
-	local MY_ROLE=$(cat /etc/xensource/pool.conf | awk -F ':' {'print $1'})
-	local HOST_UUID=$(cat ${STATE_FILES}/local_host_uuid)
-	local MASTER_UUID=$(cat ${STATE_FILES}/master_uuid)
-	local OP_MODE_TEXT=''
+  local MY_ROLE
+  MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
+  local HOST_UUID
+  HOST_UUID=$(cat ${STATE_FILES}/local_host_uuid)
+  local MASTER_UUID
+  MASTER_UUID=$(cat ${STATE_FILES}/master_uuid)
+  local OP_MODE_TEXT=''
 
-	if [ $OP_MODE -eq 1 ]
-	then
-		OP_MODE_TEXT="Managing Appliances"
-	elif [ "$OP_MODE" -eq 2 ]
-	then
-		if [ "$GLOBAL_VM_HA" -eq 0 ]
-		then
-			OP_MODE_TEXT="Managing Individual VMs in Pool"
-		elif [ "$GLOBAL_VM_HA" -eq 1 ]
-		then
-			OP_MODE_TEXT="Managing All VMs in Pool"
-		fi
-	fi
+  if [ "$OP_MODE" -eq 1 ]; then
+    OP_MODE_TEXT="Managing Appliances"
+  elif [ "$OP_MODE" -eq 2 ]; then
+    if [ "$GLOBAL_VM_HA" -eq 0 ]; then
+      OP_MODE_TEXT="Managing Individual VMs in Pool"
+    elif [ "$GLOBAL_VM_HA" -eq 1 ]; then
+      OP_MODE_TEXT="Managing All VMs in Pool"
+    fi
+  fi
 
-	which systemctl &>/dev/null
-	if [ $? -ne 0 ]
-	then
-		echo "dom0 version 7.0 or greater needed"
-		exit 1
-	fi
+  if ! which systemctl &>/dev/null; then
+    echo "dom0 version 7.0 or greater needed"
+    exit 1
+  fi
 
-	if [ -e /etc/iscsi-ha/state/manual ]
-	then
-		ST_STATE=$(yellow; echo -n "Manual Mode [`cat /etc/iscsi-ha/state/manual`]"; normal)
-	else
-		ST_STATE=$(green; echo -n "Automatic"; normal)
-	fi
-	
+  if [ -e /etc/iscsi-ha/state/manual ]; then
+    ST_STATE=$(
+      yellow
+      echo -n "Manual Mode [$(cat /etc/iscsi-ha/state/manual)]"
+      normal
+    )
+  else
+    ST_STATE=$(
+      green
+      echo -n "Automatic"
+      normal
+    )
+  fi
 
-	local STATUS_MESSAGE=$(echo -e "\
+  local STATUS_MESSAGE
+  STATUS_MESSAGE=$(echo -e "\
 ${PROG_NAME} Version:@ $VERSION\n\
 iSCSI-HA Version:@ $(iscsi-cfg -v)\n\
 Operating Mode:@ Mode [ $OP_MODE ] $OP_MODE_TEXT\n\
@@ -1111,434 +1215,403 @@ Storage Management State:@ $ST_STATE\n\
 HA Enabled:@ $HA_STATUS\n
 ")
 
-make_box "Press <q> to exit"
-echo
+  make_box "Press <q> to exit"
+  echo
 
-make_box "Cluster Services"
-echo -e "$STATUS_MESSAGE" | column -t -s '@'
-echo
+  make_box "Cluster Services"
+  echo -e "$STATUS_MESSAGE" | column -t -s '@'
+  echo
 
-make_box "iSCSI-HA Status"
-cat /etc/iscsi-ha/state/status
-echo
+  make_box "iSCSI-HA Status"
+  cat /etc/iscsi-ha/state/status
+  echo
 
-make_box "DRBD Resource Status"
-cat /proc/drbd
-echo
+  make_box "DRBD Resource Status"
+  cat /proc/drbd
+  echo
 
-if [ -e /etc/ha-lizard/state/status_report]
-then
-	make_box "Pool Status"
-	cat /etc/ha-lizard/state/status_report
-	echo
-fi
+  if [ -e /etc/ha-lizard/state/status_report ]; then
+    make_box "Pool Status"
+    cat /etc/ha-lizard/state/status_report
+    echo
+  fi
 
-if [ -e /etc/ha-lizard/state/autopromote_uuid ]
-then
-	make_box "Autopromote UUID"
-	cat /etc/ha-lizard/state/autopromote_uuid
-	echo
-fi
+  if [ -e /etc/ha-lizard/state/autopromote_uuid ]; then
+    make_box "Autopromote UUID"
+    cat /etc/ha-lizard/state/autopromote_uuid
+    echo
+  fi
 
-if [ -e /etc/ha-lizard/state/host_uuid_ip_list ]
-then
-	make_box "Pool Host UUID/IP List"
-	cat /etc/ha-lizard/state/host_uuid_ip_list
-	echo
-fi
+  if [ -e /etc/ha-lizard/state/host_uuid_ip_list ]; then
+    make_box "Pool Host UUID/IP List"
+    cat /etc/ha-lizard/state/host_uuid_ip_list
+    echo
+  fi
 
-if [ -e /etc/ha-lizard/state/rebooted ]
-then
-	make_box "Host Has Self Fenced"
-	cat /etc/ha-lizard/state/rebooted
-	echo
-fi
+  if [ -e /etc/ha-lizard/state/rebooted ]; then
+    make_box "Host Has Self Fenced"
+    cat /etc/ha-lizard/state/rebooted
+    echo
+  fi
 
-if [ -e /etc/ha-lizard/state/pool_num_hosts ]
-then
-	make_box "Number of Hosts in This Pool"
-	cat /etc/ha-lizard/state/pool_num_hosts
-	echo
-fi
+  if [ -e /etc/ha-lizard/state/pool_num_hosts ]; then
+    make_box "Number of Hosts in This Pool"
+    cat /etc/ha-lizard/state/pool_num_hosts
+    echo
+  fi
 
-if [ -e /etc/ha-lizard/ha-lizard.pool.conf ]
-then
-	make_box "HA-Lizard Configuration Parameters"
-	cat /etc/ha-lizard/ha-lizard.pool.conf
-	echo
-fi
+  if [ -e /etc/ha-lizard/ha-lizard.pool.conf ]; then
+    make_box "HA-Lizard Configuration Parameters"
+    cat /etc/ha-lizard/ha-lizard.pool.conf
+    echo
+  fi
 
-if [ -e /etc/iscsi-ha/iscsi-ha.conf ]
-then
-	make_box "iSCSI-HA Configuration Parameters"
-	cat /etc/iscsi-ha/iscsi-ha.conf | grep -v '^\s*$\|^\s*\#'
-	echo
-fi
+  if [ -e /etc/iscsi-ha/iscsi-ha.conf ]; then
+    make_box "iSCSI-HA Configuration Parameters"
+    grep -v '^\s*$\|^\s*\#' /etc/iscsi-ha/iscsi-ha.conf
+    echo
+  fi
 
-exit 0
+  exit 0
 
 } #End function cluster_status
 
-function log () {
-	$LOG_EXEC
+function log() {
+  $LOG_EXEC
 }
 
-function green () {
-	echo -e -n "\E[32m$1"
+function green() {
+  echo -e -n "\E[32m"
 }
 
-function red () {
-	echo -e -n "\E[31m$1"
+function red() {
+  echo -e -n "\E[31m"
 }
 
-function yellow () {
-	echo -e -n "\E[33m$1"
+function yellow() {
+  echo -e -n "\E[33m"
 }
 
-function normal () {
-	echo -e -n '\E[0m'
+function normal() {
+  echo -e -n '\E[0m'
 }
 
-function make_box ()
-{
-	local STRING="$*"
-	local CHAR_HORIZONTAL="-"
-	local CHAR_VERTICAL="|"
-	local NUM_ROWS=`echo "$*" | wc -l`
+function make_box() {
+  local STRING="$*"
+  local CHAR_HORIZONTAL="-"
+  local CHAR_VERTICAL="|"
+  local NUM_ROWS
+  NUM_ROWS=$(echo "$*" | wc -l)
 
-	if [ $NUM_ROWS -eq 1 ]
-	then
-		local STRING_LEN=${#STRING}
-	else
-		#Find the length of the longest line
-		local LENGTH=0
-		RESTORE_IFS=$IFS
-		IFS=$'\n'
-		for line in ${STRING[@]}
-		do
-			local NEW_LENGTH=${#line}
-			if [ $NEW_LENGTH -gt $LENGTH ]
-			then
-				LENGTH=$NEW_LENGTH
-			fi
-		done
+  if [ "$NUM_ROWS" -eq 1 ]; then
+    local STRING_LEN=${#STRING}
+  else
+    #Find the length of the longest line
+    local LENGTH=0
+    RESTORE_IFS=$IFS
+    IFS=$'\n'
+    for line in "${STRING[@]}"; do
+      local NEW_LENGTH=${#line}
+      if [ "$NEW_LENGTH" -gt "$LENGTH" ]; then
+        LENGTH=$NEW_LENGTH
+      fi
+    done
 
-		IFS=$RESTORE_IFS
-		local STRING_LEN=$LENGTH
-	fi
+    IFS=$RESTORE_IFS
+    local STRING_LEN=$LENGTH
+  fi
 
-	local HORIZ_LEN=$(($STRING_LEN + 4))
+  local HORIZ_LEN=$((STRING_LEN + 4))
 
-	#create the top border
-	local COUNT=0
-	while [ $COUNT -lt $HORIZ_LEN ]
-	do
-		echo -n "$CHAR_HORIZONTAL"
-		COUNT=$(($COUNT + 1))
-	done
-	echo
+  #create the top border
+  local COUNT=0
+  while [ $COUNT -lt $HORIZ_LEN ]; do
+    echo -n "$CHAR_HORIZONTAL"
+    COUNT=$((COUNT + 1))
+  done
+  echo
 
-	#create the rows
-	if [ $NUM_ROWS -eq 1 ]
-	then
-		echo "$CHAR_VERTICAL $* $CHAR_VERTICAL"
-	elif [ $NUM_ROWS -gt 1 ]
-	then
-		RESTORE_IFS=$IFS
-		IFS=$'\n'
-		for line in ${STRING[@]}
-		do
-			NUM_SPACES=$(($HORIZ_LEN - ${#line} - 4))
-			COUNT=0
-			SPACE=" "
-			while [ $NUM_SPACES -gt $COUNT ]
-			do
-				SPACE="$SPACE "
-				COUNT=$(($COUNT + 1))
-			done
-			printf "$CHAR_VERTICAL $line$SPACE$CHAR_VERTICAL\n"
-		done
-		IFS=$RESTORE_IFS
-	fi
+  #create the rows
+  if [ "$NUM_ROWS" -eq 1 ]; then
+    echo "$CHAR_VERTICAL $* $CHAR_VERTICAL"
+  elif [ "$NUM_ROWS" -gt 1 ]; then
+    RESTORE_IFS=$IFS
+    IFS=$'\n'
+    for line in "${STRING[@]}"; do
+      NUM_SPACES=$((HORIZ_LEN - ${#line} - 4))
+      COUNT=0
+      SPACE=" "
+      while [ $NUM_SPACES -gt $COUNT ]; do
+        SPACE="$SPACE "
+        COUNT=$((COUNT + 1))
+      done
+      printf "%s\n" "$CHAR_VERTICAL $line$SPACE$CHAR_VERTICAL"
+    done
+    IFS=$RESTORE_IFS
+  fi
 
-	#create the bottom border
-	COUNT=0
-	while [ $COUNT -lt $HORIZ_LEN ]
-	do
-		echo  -n "$CHAR_HORIZONTAL"
-		COUNT=$(($COUNT + 1))
-	done
-	echo
+  #create the bottom border
+  COUNT=0
+  while [ $COUNT -lt $HORIZ_LEN ]; do
+    echo -n "$CHAR_HORIZONTAL"
+    COUNT=$((COUNT + 1))
+  done
+  echo
 } #End function make_box
 
-if [ ${TIMEOUT} = "true" ]
-then
-	status
+if [ ${TIMEOUT} = "true" ]; then
+  status
 fi
 
-function ha-status () {
-	local HA_STATUS=$(xe pool-param-get uuid=$POOL_UUID param-name=other-config param-key=XenCenter.CustomFields.$XC_FIELD_NAME)
-	echo "$HA_STATUS"
+function ha-status() {
+  local HA_STATUS
+  HA_STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+  echo "$HA_STATUS"
 } #End function ha-status
 
-function ha-enable () {
-	xe pool-param-set uuid=$POOL_UUID other-config:XenCenter.CustomFields.$XC_FIELD_NAME=true
-	RETVAL=$?
-	if [ $RETVAL -eq 0 ]
-	then
-		echo "Success"
-		exit 0
-	else
-		echo "Error"
-		exit 1
-	fi
+function ha-enable() {
+  xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true
+  RETVAL=$?
+  if [ $RETVAL -eq 0 ]; then
+    echo "Success"
+    exit 0
+  else
+    echo "Error"
+    exit 1
+  fi
 } #End function ha-enable
 
-function ha-disable () {
-	xe pool-param-set uuid=$POOL_UUID other-config:XenCenter.CustomFields.$XC_FIELD_NAME=false
-	RETVAL=$?
-	if [ $RETVAL -eq 0 ]
-	then
-		echo "Success"
-		exit 0
-	else
-		echo "Error"
-		exit 1
-	fi
+function ha-disable() {
+  xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false
+  RETVAL=$?
+  if [ $RETVAL -eq 0 ]; then
+    echo "Success"
+    exit 0
+  else
+    echo "Error"
+    exit 1
+  fi
 } #End function ha-disable
 
 case $1 in
-	ha-status)
-		ha-status
-		;;
+ha-status)
+  ha-status
+  ;;
 
-	ha-enable)
-		ha-enable
-		;;
+ha-enable)
+  ha-enable
+  ;;
 
-	ha-disable)
-		ha-disable
-		;;
+ha-disable)
+  ha-disable
+  ;;
 
-	insert)
-		insert
-		;;
+insert)
+  insert
+  ;;
 
-	remove)
-		remove
-		;;
+remove)
+  remove
+  ;;
 
-	get)
-		get $2
-		;;
-	
-	set)
-		set $1 $2 "$3" #`echo "$3"`
-		;;
+get)
+  get "$2"
+  ;;
 
-	set-quiet)
-		set-quiet $1 $2 "$3" #`echo "$3"`
-		;;
+set)
+  set "$1" "$2" "$3" #`echo "$3"`
+  ;;
 
-	set-vm-ha)
-		set-vm-ha $1 "$2" $3 $4
-		;;
+set-quiet)
+  set-quiet "$1" "$2" "$3" #`echo "$3"`
+  ;;
 
-	get-vm-ha)
-		vm_ha_status
-		;;
+set-vm-ha)
+  set-vm-ha "$1" "$2" "$3" "$4"
+  ;;
 
-	log)
-		log
-		;;
+get-vm-ha)
+  vm_ha_status
+  ;;
 
-	status)
-		status	
-		;;
+log)
+  log
+  ;;
 
-	cluster-status)
-		cluster_status | less -r
-		;;
+status)
+  status
+  ;;
 
-	backup)
-		if [ ! $2 ]
-		then
-			echo "Missing argument: filename"
-			echo "Usage <ha-cfg backup /path/to/file/filename>"
-			exit 1
-		else
-			get -l > $2
-		fi
-		;;
+cluster-status)
+  cluster_status | less -r
+  ;;
 
-	restore)
-		if [ ! $2 ]
-		then
-			echo "Missing argument: filename"
-			echo "Usage <ha-cfg restore /path/to/file/filename>"
-			exit 1
-		fi
-		if [ -f $2 ]
-		then
-			for line in `cat $2`
-			do
-				PARAM_NAME=`echo $line | awk -F "=" {'print $1'}`
-				PARAM_VALUE=`echo $line | awk -F "=" {'print $2'}`
-				set-quiet "" "$PARAM_NAME" "$PARAM_VALUE"
-			done
-			/etc/init.d/ha-lizard restart -w
-		else
-			echo "Invalid filename"
-			exit 1
-		fi
-		;;
+backup)
+  if [ ! "$2" ]; then
+    echo "Missing argument: filename"
+    echo "Usage <ha-cfg backup /path/to/file/filename>"
+    exit 1
+  else
+    get -l >"$2"
+  fi
+  ;;
 
-	restore-default)
-		echo "Restore default values for pool. Are you sure [y|n]?"
-		read RESTORE_SELECT
-		if [ "$RESTORE_SELECT" = "y" ]
-		then
-			for row in ${PARAM_LIST[@]}
-			do
-				PARAM_NAME=$(echo $row | awk -F '=' {'print $1'})
-				PARAM_VALUE=$(echo $row | awk -F '=' {'print $2'})
-				#echo "Setting [ $PARAM_NAME ] = [ $PARAM_VALUE ]"
-				set-quiet "" "$PARAM_NAME" "$PARAM_VALUE"
-			done
-		else
-			exit 0
-		fi
-		;;
+restore)
+  if [ -z "$2" ]; then
+    echo "Missing argument: filename"
+    echo "Usage <ha-cfg restore /path/to/file/filename>"
+    exit 1
+  fi
 
-	email)
-		source /etc/ha-lizard/ha-lizard.func
-		if [ $MAIL_ON -eq 0 ]
-		then
-			echo "Email alerting is disabled"
-			echo "Try <ha-cfg set mail_on 1> to enable"
-		else
-			email "Test Message ID `uuidgen`"
-		fi
-		;;
+  if [ -f "$2" ]; then
+    while IFS='=' read -r PARAM_NAME PARAM_VALUE; do
+      set-quiet "" "$PARAM_NAME" "$PARAM_VALUE"
+    done <"$2"
+    /etc/init.d/ha-lizard restart -w
+  else
+    echo "Invalid filename"
+    exit 1
+  fi
+  ;;
 
-	email_debug)
-		MAIL_TIME=`date`
-		$MAIL \
-		"$MAIL_FROM" \
-		"$MAIL_TO" \
-		"$MAIL_SUBJECT" \
-		"$MAIL_TIME" \
-		"$PROG_NAME Version: $VERSION" \
-		"Test Message ID `uuidgen`" \
-		"$SMTP_SERVER" \
-		"$SMTP_PORT" \
-		"$SMTP_USER" \
-		"$SMTP_PASS" \
-		2>&1
-		;;
+restore-default)
+  echo "Restore default values for pool. Are you sure [y|n]?"
+  read -r RESTORE_SELECT
+  if [ "$RESTORE_SELECT" = "y" ]; then
+    for row in "${PARAM_LIST[@]}"; do
+      PARAM_NAME=$(echo "$row" | awk -F '=' '{print $1}')
+      PARAM_VALUE=$(echo "$row" | awk -F '=' '{print $2}')
+      #echo "Setting [ $PARAM_NAME ] = [ $PARAM_VALUE ]"
+      set-quiet "" "$PARAM_NAME" "$PARAM_VALUE"
+    done
+  else
+    exit 0
+  fi
+  ;;
 
-	help)
-		if [ -e $HELPFILE ]
-		then
-			fold -w 80 -s $HELPFILE | less
-		else
-			echo "Missing help file"
-		fi
-		;;
+email)
+  # shellcheck source=/dev/null
+  source /etc/ha-lizard/ha-lizard.func
+  if [ "$MAIL_ON" -eq 0 ]; then
+    echo "Email alerting is disabled"
+    echo "Try <ha-cfg set mail_on 1> to enable"
+  else
+    email "Test Message ID $(uuidgen)"
+  fi
+  ;;
 
-	show-alerts)
-		ALERTS_RESULT='\n----------~~~----------~~~-------------\nAlert-Time~~~Alert-Name~~~Alert-Details\n----------~~~----------~~~-------------\n'
-		ALERTS_LIST=$(xe message-list --minimal | tr "," "\n")
-		for alert in ${ALERTS_LIST[@]}
-		do
-			THIS_ALERT_NAME=$(xe message-param-get uuid=${alert} param-name=name)
-			if [[ ${THIS_ALERT_NAME} =~ ^${ALERT_HEADER} ]]
-			then
-				THIS_ALERT_BODY=$(xe message-param-get uuid=${alert} param-name=body)
-				THIS_ALERT_TIME=$(xe message-param-get uuid=${alert} param-name=timestamp)
-				ALERTS_RESULT+="${THIS_ALERT_TIME}:~~~${THIS_ALERT_NAME}~~~${THIS_ALERT_BODY}\n"
-			fi
-		done
-		echo -e "${ALERTS_RESULT}" | column -t -s ~~~
-		;;
+email_debug)
+  MAIL_TIME=$(date)
+  $MAIL \
+    "$MAIL_FROM" \
+    "$MAIL_TO" \
+    "$MAIL_SUBJECT" \
+    "$MAIL_TIME" \
+    "$PROG_NAME Version: $VERSION" \
+    "Test Message ID $(uuidgen)" \
+    "$SMTP_SERVER" \
+    "$SMTP_PORT" \
+    "$SMTP_USER" \
+    "$SMTP_PASS" \
+    2>&1
+  ;;
 
-	clear-alerts)
-		ALERTS_LIST=$(xe message-list --minimal | tr "," "\n")
-		for alert in ${ALERTS_LIST[@]}
-		do
-			THIS_ALERT_NAME=$(xe message-param-get uuid=${alert} param-name=name)
-			if [[ ${THIS_ALERT_NAME} =~ ^${ALERT_HEADER} ]]
-			then
-				xe message-destroy uuid=${alert}
-			fi
-		done
-		;;
+help)
+  if [ -e $HELPFILE ]; then
+    fold -w 80 -s $HELPFILE | less
+  else
+    echo "Missing help file"
+  fi
+  ;;
 
-	raise-alert)
-		##################################
-		## This is an undocumented feature
-		## used for external program to
-		## redirect system alerts through
-		## ha-cfg.
-		##################################
-		if [ $ENABLE_ALERTS -eq 1 ]
-		then
-			source /etc/ha-lizard/ha-lizard.func
-			ALERT_NAME=$2
-			ALERT_BODY=$3
-			ALERT_LEVEL=$4
-			xe_raise_alert "${CALLER_NAME}" "${ALERT_NAME}" "${ALERT_BODY}" "${ALERT_LEVEL}"
-			exit $?
-		fi
-		;;
+show-alerts)
+  ALERTS_RESULT='\n----------~~~----------~~~-------------\nAlert-Time~~~Alert-Name~~~Alert-Details\n----------~~~----------~~~-------------\n'
+  ALERTS_LIST=$(xe message-list --minimal | tr "," "\n")
+  for alert in "${ALERTS_LIST[@]}"; do
+    THIS_ALERT_NAME=$(xe message-param-get uuid="${alert}" param-name=name)
+    if [[ ${THIS_ALERT_NAME} =~ ^${ALERT_HEADER} ]]; then
+      THIS_ALERT_BODY=$(xe message-param-get uuid="${alert}" param-name=body)
+      THIS_ALERT_TIME=$(xe message-param-get uuid="${alert}" param-name=timestamp)
+      ALERTS_RESULT+="${THIS_ALERT_TIME}:~~~${THIS_ALERT_NAME}~~~${THIS_ALERT_BODY}\n"
+    fi
+  done
+  echo -e "${ALERTS_RESULT}" | column -t -s ~~~
+  ;;
 
-	version)
-		echo "Version ${VERSION}"
-		exit 0
-		;;
+clear-alerts)
+  ALERTS_LIST=$(xe message-list --minimal | tr "," "\n")
+  for alert in "${ALERTS_LIST[@]}"; do
+    THIS_ALERT_NAME=$(xe message-param-get uuid="${alert}" param-name=name)
+    if [[ ${THIS_ALERT_NAME} =~ ^${ALERT_HEADER} ]]; then
+      xe message-destroy uuid="${alert}"
+    fi
+  done
+  ;;
 
-	*)
-		echo "HA-Lizard Command Line Interface"
-		echo "Pool Configuration and Monitoring Tool for xen/xapi High Availability"
-		echo  -e "Usage: ha-cfg <action> <values for selected action>\n"
-		echo "Available actions:"
-		echo "<help>:             Display help for parameter settings"
-		echo "<show-alerts>:      List HA-Lizard alert messages"
-		echo "<clear-alerts>:     Clears HA-Lizard alert messages"
-		echo "<ha-status>:        Displays HA status as true or false"
-		echo "<ha-enable>:        Enables pool HA"
-		echo "<ha-disable>:       Disables pool HA"
-		echo "<insert>:           Inserts default values into xapi pool database".
-		echo "                    Use with caution. Intended for a fresh install"
-		echo "                    or repair of existing installation."
-		echo "<remove>:           Removes all custom fields from xapi pool database"
-		echo "                    Use caution. Intended to repair existing installation."
-		echo "<log>:              Watch HA log file output in real time" 
-		echo "<get>:              Lists all HA params and values stored in pool database"
-		echo "<set>:              Sets the specified parameter to the specified value."
-		echo "                    ex. [ha-cfg set MAIL_ON 0] disables email alerts"
-		echo "                    Values with spaces should be wrapped in double quotes."
-		echo "                    Usage <ha-cfg set [parameter] [value]>"
-		echo "<get-vm-ha>:        Lists all pool VMs and status of HA enabled for each VM"
-		echo "<set-vm-ha>:        Enable/Disable HA for the specified VM"
-		echo "                    Only needed when configured to individually select managed VMs"
-		echo "                    Usage <ha-cfg set-vm-ha [vm-name-label] [true or false]>"
-		echo "<status>:           Displays the HA operational status of the pool"
-		echo "                    and enables/disables HA for the pool."
-		echo "<backup>:           Backup the global configuration and store in the specified location"
-		echo "                    Usage <ha-cfg backup /path/to/file/filename>"
-		echo "<restore>:          Restore the global configuration from the specified backup file"
-		echo "                    Usage <ha-cfg restore /path/to/file/filename>"
-		echo "<restore-default>:  Usage <ha-cfg restore-default>"
-		echo "                    Restores default installation settings"
-		echo "<cluster-status>:   Usage <ha-cfg cluster-status>"
-		echo "                    Provides detailed information about all cluster services and status"
-		echo "<email>:            Sends a test email message using the configured email settings"
-		echo "<email_debug>:      Sends a test email message using the configured email settings"
-		echo "                    and prints verbose debug to stdout <AKA the screen>"
-		echo
-		echo "<version>           Display version number to stdout"
-		echo
-		;;
+raise-alert)
+  ##################################
+  ## This is an undocumented feature
+  ## used for external program to
+  ## redirect system alerts through
+  ## ha-cfg.
+  ##################################
+  if [ "$ENABLE_ALERTS" -eq 1 ]; then
+    # shellcheck source=/dev/null
+    source /etc/ha-lizard/ha-lizard.func
+    ALERT_NAME=$2
+    ALERT_BODY=$3
+    ALERT_LEVEL=$4
+    xe_raise_alert "${CALLER_NAME}" "${ALERT_NAME}" "${ALERT_BODY}" "${ALERT_LEVEL}"
+    exit $?
+  fi
+  ;;
+
+version)
+  echo "Version ${VERSION}"
+  exit 0
+  ;;
+
+*)
+  echo "HA-Lizard Command Line Interface"
+  echo "Pool Configuration and Monitoring Tool for xen/xapi High Availability"
+  echo -e "Usage: ha-cfg <action> <values for selected action>\n"
+  echo "Available actions:"
+  echo "<help>:             Display help for parameter settings"
+  echo "<show-alerts>:      List HA-Lizard alert messages"
+  echo "<clear-alerts>:     Clears HA-Lizard alert messages"
+  echo "<ha-status>:        Displays HA status as true or false"
+  echo "<ha-enable>:        Enables pool HA"
+  echo "<ha-disable>:       Disables pool HA"
+  echo "<insert>:           Inserts default values into xapi pool database".
+  echo "                    Use with caution. Intended for a fresh install"
+  echo "                    or repair of existing installation."
+  echo "<remove>:           Removes all custom fields from xapi pool database"
+  echo "                    Use caution. Intended to repair existing installation."
+  echo "<log>:              Watch HA log file output in real time"
+  echo "<get>:              Lists all HA params and values stored in pool database"
+  echo "<set>:              Sets the specified parameter to the specified value."
+  echo "                    ex. [ha-cfg set MAIL_ON 0] disables email alerts"
+  echo "                    Values with spaces should be wrapped in double quotes."
+  echo "                    Usage <ha-cfg set [parameter] [value]>"
+  echo "<get-vm-ha>:        Lists all pool VMs and status of HA enabled for each VM"
+  echo "<set-vm-ha>:        Enable/Disable HA for the specified VM"
+  echo "                    Only needed when configured to individually select managed VMs"
+  echo "                    Usage <ha-cfg set-vm-ha [vm-name-label] [true or false]>"
+  echo "<status>:           Displays the HA operational status of the pool"
+  echo "                    and enables/disables HA for the pool."
+  echo "<backup>:           Backup the global configuration and store in the specified location"
+  echo "                    Usage <ha-cfg backup /path/to/file/filename>"
+  echo "<restore>:          Restore the global configuration from the specified backup file"
+  echo "                    Usage <ha-cfg restore /path/to/file/filename>"
+  echo "<restore-default>:  Usage <ha-cfg restore-default>"
+  echo "                    Restores default installation settings"
+  echo "<cluster-status>:   Usage <ha-cfg cluster-status>"
+  echo "                    Provides detailed information about all cluster services and status"
+  echo "<email>:            Sends a test email message using the configured email settings"
+  echo "<email_debug>:      Sends a test email message using the configured email settings"
+  echo "                    and prints verbose debug to stdout <AKA the screen>"
+  echo
+  echo "<version>           Display version number to stdout"
+  echo
+  ;;
 esac
-
