@@ -1,0 +1,69 @@
+#!/bin/bash
+#################################################################################
+#                                                                               #
+# initialize_cluster_services - Script to initialize and configure cluster      #
+# services in an HA-Lizard environment. The script ensures that specific        #
+# services are set to auto-start or stop, and that certain services are running.#
+#                                                                               #
+# Usage:                                                                        #
+#   This script checks if the host is part of HA-Lizard cluster and configures  #
+#   the services accordingly.                                                   #
+#                                                                               #
+# Author: Salvatore Costantino (2024)                                           #
+#                                                                               #
+# License: GNU General Public License v3.0 or later                             #
+#                                                                               #
+#################################################################################
+
+# Check if the host is part of HA-Lizard cluster by verifying if iscsi-cfg exists
+if [ ! -e /usr/bin/iscsi-cfg ]; then
+  echo "Host is not part of an HA-Lizard cluster. Exiting..."
+  exit 1
+fi
+
+# Declare arrays for service management
+declare -a AUTO_START_TRUE=("ha-lizard-watchdog" "ha-lizard" "iscsi-ha-watchdog" "iscsi-ha")
+declare -a AUTO_START_FALSE=("drbd" "tgtd")
+declare -a MAKE_SERVICE_RUNNING=("ha-lizard" "ha-lizard-watchdog" "iscsi-ha" "iscsi-ha-watchdog")
+
+# Set services to auto-start using chkconfig
+for service in "${AUTO_START_TRUE[@]}"; do
+  if ! chkconfig "$service" on; then
+    echo "Failed to enable auto-start for $service"
+    exit 1
+  fi
+done
+
+# Set services to not auto-start
+for service in "${AUTO_START_FALSE[@]}"; do
+  if ! chkconfig "$service" off; then
+    echo "Failed to disable auto-start for $service"
+    exit 1
+  fi
+done
+
+# Ensure services are running, try to start or restart if necessary
+for service in "${MAKE_SERVICE_RUNNING[@]}"; do
+  systemctl status "$service" &>/dev/null
+  RETVAL=$?
+
+  # If the service is not running, attempt to start or restart
+  if [ "$RETVAL" -ne 0 ]; then
+    echo "$service is not running. Attempting to start..."
+    systemctl start "$service" &>/dev/null
+    RETVAL=$?
+
+    if [ "$RETVAL" -ne 0 ]; then
+      echo "Failed to start $service, attempting restart..."
+      systemctl restart "$service" &>/dev/null
+      RETVAL=$?
+
+      if [ "$RETVAL" -ne 0 ]; then
+        echo "Failed to restart $service, exiting..."
+        exit 1
+      fi
+    fi
+  fi
+done
+
+echo "Cluster services have been successfully initialized."
