@@ -51,9 +51,10 @@ echo "Building skipped."
 # Install files into the buildroot
 mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard
 # Use rsync to copy all files except the 'etc' directory
-rsync -a --exclude=etc/ * %{buildroot}%{_sysconfdir}/ha-lizard
+rsync -a --exclude=etc/ --exclude=usr/ * %{buildroot}%{_sysconfdir}/ha-lizard
 # Specifically install the bash completion file
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
+install -D -m 755 usr/local/bin/email_alert.py %{buildroot}%{_bindir}/email_alert.py
 
 
 %pre
@@ -164,6 +165,9 @@ fi
 
 # bash completion
 %{_sysconfdir}/bash_completion.d/ha-cfg
+
+# Include the Python script in /usr/local/bin/
+%{_bindir}/email_alert.py
 
 # TODO: Add the CHANGELOG file following the RPM spec format
 #%changelog
