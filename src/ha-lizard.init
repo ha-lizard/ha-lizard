@@ -27,6 +27,6 @@ MAIL_SPOOL=/dev/shm/ha-lizard-mail
 XL_EXEC=$(which xl)
 LIST_DOMAINS=$(which list_domains 2> /dev/null)
 LIST_DOMAINS=${LIST_DOMAINS:-"/opt/xensource/bin/list_domains"}
-HOST_IS_SLAVE=/etc/ha-lizard/scripts/host_is_slave
+HOST_IS_SLAVE=/usr/bin/host_is_slave
 HOME_POOL_PARAM_KEY="home-pool"
 CHECK_DISK=/usr/bin/check_disk_smart_status

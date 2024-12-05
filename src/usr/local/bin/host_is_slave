@@ -1,0 +1,79 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+"""
+Validate whether the passed in IP (argv1) is a pool slave.
+
+If called against a master, wrap a timeout around call.
+A timeout will occur as this script never really logs in to
+host - instead it just looks for error message indicating that the
+interrogated host is a slave
+"""
+
+import sys
+import XenAPI
+
+
+def validate_slave(ip_to_test):
+    """
+    Validate whether the provided IP is a pool slave.
+
+    This function attempts to log in to the XenAPI server at the provided IP.
+    If the server is a slave, it will return an error message. If it is a master,
+    it will wrap a timeout around the call.
+
+    Args:
+        ip_to_test (str): The IP address to test.
+
+    Returns:
+        str: The error message if the host is a slave, or a timeout message.
+    """
+    session_url = 'http://{}'.format(ip_to_test)
+
+    try:
+        # Attempt to create a session and log in with the root credentials
+        session = XenAPI.Session(session_url)
+        session.xenapi.login_with_password('root', '', '', 'HA-Lizard')
+        session.close()  # Close the session when done
+        return "HOST_IS_MASTER"
+    except XenAPI.Failure as error:
+        # If it's a slave, the error message will be returned
+        if "HOST_IS_SLAVE" in str(error):
+            # Handle the slave case
+            return error.details[0]
+
+        else:
+            # Handle any other as master host
+            return error.details[0]
+    except Exception as e:
+        # Catch any other exceptions, such as connection issues
+        return "An error occurred: {}".format(str(e))
+
+
+def main():
+    """
+    Main function to execute the validation script.
+
+    It checks if the script is executed with the required IP argument.
+    If the IP is valid, it calls validate_slave function and prints the result.
+    """
+    if len(sys.argv) != 2:
+        print("Usage: {} <IP_to_test>".format(sys.argv[0]))
+        sys.exit(1)
+
+    ip_to_test = sys.argv[1]
+
+    # Validate and print the result
+    result = validate_slave(ip_to_test)
+    print(result)
+
+    # TODO: fix the VALIDATE_MASTER_EXEC on ha-lizard.sh to manage errors code.
+    # Exit with a non-zero code if the result indicates it's a master
+    # if result == "HOST_IS_SLAVE":
+    #     sys.exit(0)  # Exit with 0 (success) since master is expected behavior
+    # else "HOST_IS_MASTER" in result:
+    #     sys.exit(1)  # Exit with 1 to indicate an error if the host is a slave
+
+
+if __name__ == "__main__":
+    main()
