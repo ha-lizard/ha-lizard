@@ -44,7 +44,7 @@ echo "Switching to master"
 echo master > /etc/xensource/pool.conf
 if [ $? = 0 ]; then
 	echo "Successfully set host mode to master"
-fi	
+fi
 
 echo "Enter new IP information for host. Host will reset when done"
 echo "Enter new IP address"

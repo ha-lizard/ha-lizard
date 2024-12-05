@@ -27,4 +27,3 @@ else
 	echo "This host's HA operating status is normal - no changes made - exiting"
 	exit 1
 fi
-
