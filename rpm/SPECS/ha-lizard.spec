@@ -56,6 +56,7 @@ rsync -a --exclude=etc/ --exclude=usr/ * %{buildroot}%{_sysconfdir}/ha-lizard
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
 install -D -m 755 usr/local/bin/check_disk_smart_status %{buildroot}%{_bindir}/check_disk_smart_status
 install -D -m 755 usr/local/bin/email_alert.py %{buildroot}%{_bindir}/email_alert.py
+install -D -m 755 usr/local/bin/watcher %{buildroot}%{_bindir}/watcher
 
 %pre
 # Placeholder for pre-install actions
@@ -169,6 +170,7 @@ fi
 # Include the python and bash script in /usr/bin/
 %{_bindir}/check_disk_smart_status
 %{_bindir}/email_alert.py
+%{_bindir}/watcher
 
 # TODO: Add the CHANGELOG file following the RPM spec format
 #%changelog

@@ -1,24 +1,71 @@
 #!/bin/bash
-if [ ! $1 ] || [ ! $2 ] || [ ! $3 ]
-then
 
-	echo "Process Watcher - Kill Processes that run longer than the passed in Timeout
-Usage watcher <command name> <PID> <timeout seconds> <optional log label>
+#################################################################################
+# Process Watcher                                                               #
+# Monitors a process by PID and command name and kills it if it exceeds a       #
+# specified timeout.                                                            #
+#                                                                               #
+# Usage: watcher <command_name> <PID> <timeout_seconds> <optional_log_label>    #
+#                                                                               #
+# Example:                                                                      #
+#   watcher grep 2233 5                                                        #
+#   This will monitor the 'grep' process running on PID 2233. If it exceeds     #
+#   5 seconds, the process will be killed.                                      #
+#                                                                               #
+# Notes:                                                                        #
+#   When calling watcher from another script, background it with `&` to avoid   #
+#   delaying the execution of the calling script.                               #
+#################################################################################
 
-Example: <watcher grep 2233 5> will check for the grep command running on PID 2233
-If it has been running for more than 5 seconds, PID 2233 will be killed
-When calling watcher from another script, background it with <watcher arg1 arg2 arg3 &>
-to avoid delaying the execution of the calling script"
-exit 1
+# Function to display usage instructions
+usage() {
+  echo "Process Watcher - Kill Processes that run longer than the passed in Timeout
+Usage: watcher <command_name> <PID> <timeout_seconds> <optional_log_label>
+
+Example:
+  watcher grep 2233 5
+  This monitors the 'grep' command running on PID 2233 and kills it if it
+  exceeds 5 seconds.
+
+When calling watcher from another script, background it with:
+  watcher <command_name> <PID> <timeout_seconds> &"
+  exit 1
+}
+
+# Validate arguments
+if [[ -z "$1" || -z "$2" || -z "$3" ]]; then
+  usage
 fi
 
+# Assign arguments to variables for clarity
+COMMAND_NAME=$1
 PROC_PID=$2
-sleep $3
-(
-VALIDATE_PROC_PID=`ps -p $PROC_PID | grep "$1" | awk '{ print $4; }'`
-if [ $VALIDATE_PROC_PID ]
-then
-        kill $PROC_PID
-        logger -t watcher:$4 "Command: $1 has reached maximum allowable time of $3 SECONDS. KILLING PID: $PROC_PID , PID_NAME: $VALIDATE_PROC_PID"
+TIMEOUT=$3
+LOG_LABEL=${4:-default} # Use 'default' if no log label is provided
+
+# Validate that the PID is numeric
+if ! [[ $PROC_PID =~ ^[0-9]+$ ]]; then
+  echo "Error: PID must be a numeric value."
+  exit 1
 fi
-)  &
+
+# Validate that the timeout is numeric
+if ! [[ $TIMEOUT =~ ^[0-9]+$ ]]; then
+  echo "Error: Timeout must be a numeric value."
+  exit 1
+fi
+
+# Sleep for the specified timeout duration and validate the process
+(
+  sleep "$TIMEOUT"
+
+  # Check if the process is running and matches the command name
+  VALIDATE_PROC_PID=$(ps -p "$PROC_PID" -o comm= | grep -w "$COMMAND_NAME")
+
+  if [[ -n "$VALIDATE_PROC_PID" ]]; then
+    # Kill the process if it exceeds the timeout
+    kill "$PROC_PID"
+    logger -t "watcher:$LOG_LABEL" \
+      "Command: $COMMAND_NAME exceeded maximum allowable time of $TIMEOUT seconds. KILLING PID: $PROC_PID, PID_NAME: $VALIDATE_PROC_PID"
+  fi
+) &
