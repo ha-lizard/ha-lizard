@@ -776,7 +776,7 @@ HA Enabled:@ $STATUS")
       echo -e "\r\nNOTICE: This host has encountered an error and HA operation has been suspended."
       echo "To restore HA on this host, first ensure the pool is fully operational"
       echo "and the issue that caused this host to be ejected has been resolved"
-      echo "HA can be reactivated by running /etc/ha-lizard/scripts/recover_fenced_host"
+      echo "HA can be reactivated by running /usr/bin/recover_fenced_host"
     fi
 
     normal
