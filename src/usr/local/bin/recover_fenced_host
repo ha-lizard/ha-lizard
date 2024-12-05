@@ -1,29 +1,70 @@
-clear
-echo "###################################################################################################################"
-echo "###################################################################################################################"
-echo "## DO NOT CONTINUE unless you know what you are doing                                                            ##"
-echo "## This script will recover a host which has self fenced and is operating with HA (HA-Lizard) in suspended mode  ##"
-echo "## Before continuing - make sure that the situation that caused the host to fence has been corrected             ##"
-echo "## Control + C to exit or <Enter> to continue                                                                    ##"
-echo "###################################################################################################################"
-echo "###################################################################################################################"
-read n1
+#!/bin/bash
+#################################################################################
+#                                                                               #
+# recover_fenced_host - Script to recover a host that has been self-fenced      #
+# and is operating with HA (HA-Lizard) in suspended mode. This script should    #
+# only be executed after ensuring that the situation that caused the fence has  #
+# been addressed.                                                               #
+#                                                                               #
+# Usage:                                                                       #
+#   This script prompts the user to confirm recovery of the self-fenced host.   #
+#   Type 'YES' to proceed or press <Ctrl+C> to abort the process.               #
+#                                                                               #
+# Author: Salvatore Costantino (2024)                                           #
+# Email: ha@ixi0.com                                                            #
+#                                                                               #
+# License: GNU General Public License v3.0 or later                             #
+#                                                                               #
+#################################################################################
 
+clear
+
+# Set the color to red for warning messages
+RED="\033[31m"
+# Reset the color back to default
+RESET="\033[0m"
+
+# Display the warning message in red
+echo -e "${RED}"
+cat <<EOF
+################################################################################
+################################################################################
+## DO NOT CONTINUE unless you know what you are doing                         ##
+## This script will recover a host which has self-fenced and is operating     ##
+## with HA (HA-Lizard) in suspended mode.                                     ##
+## Before continuing, ensure that the situation that caused the host to fence ##
+## has been corrected.                                                        ##
+## Type 'YES' to continue or press <Ctrl+C> to exit                           ##
+################################################################################
+################################################################################
+EOF
+echo -e "${RESET}"
+
+# Wait for user input, only proceed if 'YES' is typed
+read -r user_input
+if [[ "$user_input" != "YES" ]]; then
+  echo "Aborting... Invalid input"
+  exit 1
+fi
+
+# Source the HA-Lizard initialization script
+# shellcheck source=/dev/null
 source /etc/ha-lizard/ha-lizard.init
 
-if [ -a $STATE_PATH/fenced_slave ]
-then
-	echo "Restoring HA"
-	rm -f $STATE_PATH/fenced_slave
-	if [ $? -ne 0 ]
-	then
-		echo "Failed to remove suspened HA state"
-		exit 1
-	else
-		echo "HA operation returned to normal for this host"
-		exit 0
-	fi
+# Check if the host is in the fenced state
+if [ -a "$STATE_PATH/fenced_slave" ]; then
+  echo "Restoring HA"
+
+  # Attempt to remove the suspended HA state
+  if ! rm -f "$STATE_PATH/fenced_slave"; then
+    echo "Failed to remove suspended HA state"
+    exit 1
+  else
+    echo "HA operation returned to normal for this host"
+    exit 0
+  fi
 else
-	echo "This host's HA operating status is normal - no changes made - exiting"
-	exit 1
+  # If the host is not in the fenced state, exit with a message
+  echo "This host's HA operating status is normal - no changes made - exiting"
+  exit 1
 fi
