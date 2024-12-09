@@ -46,7 +46,7 @@ fi
 # shellcheck source=/dev/null
 source /etc/ha-lizard/ha-lizard.init #override configuration settings for this host - static for this host
 # shellcheck source=/dev/null
-source /etc/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/ha-lizard.func
 
 #######################################
 # Set any args passed in

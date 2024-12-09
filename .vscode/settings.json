@@ -68,6 +68,7 @@
     "iscsi",
     "killall",
     "KILLALL",
+    "libdir",
     "localstatedir",
     "logline",
     "mailx",

@@ -61,6 +61,7 @@ install -D -m 755 usr/local/bin/initialize_cluster_services %{buildroot}%{_bindi
 install -D -m 755 usr/local/bin/recover_fenced_host %{buildroot}%{_bindir}/recover_fenced_host
 install -D -m 755 usr/local/bin/recover_forgotten_host %{buildroot}%{_bindir}/recover_forgotten_host
 install -D -m 755 usr/local/bin/watcher %{buildroot}%{_bindir}/watcher
+install -D -m 755 usr/lib64/ha-lizard/ha-lizard.func %{buildroot}%{_libdir}/ha-lizard/ha_lizard.func
 
 %pre
 # Placeholder for pre-install actions
@@ -142,7 +143,9 @@ fi
 
 # Scripts and binaries
 %{_sysconfdir}/ha-lizard/scripts
-%{_sysconfdir}/ha-lizard/ha-lizard.func
+
+# Libraries
+%{_libdir}/ha-lizard/ha-lizard.func
 
 # Init and systemd service files
 %{_sysconfdir}/ha-lizard/init/ha-lizard

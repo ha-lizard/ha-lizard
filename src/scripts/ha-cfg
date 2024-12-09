@@ -5,6 +5,8 @@ exec 2>/dev/null
 source /etc/ha-lizard/ha-lizard.pool.conf #global configuration parameters for all hosts in pool - dynamic for pool
 # shellcheck source=/dev/null
 source /etc/ha-lizard/ha-lizard.init #override configuration settings for this host - static for this host
+# shellcheck source=/dev/null
+source /usr/lib64/ha-lizard/ha-lizard.func
 
 #######################
 # Environment VARs
@@ -1490,8 +1492,6 @@ restore-default)
   ;;
 
 email)
-  # shellcheck source=/dev/null
-  source /etc/ha-lizard/ha-lizard.func
   if [ "$MAIL_ON" -eq 0 ]; then
     echo "Email alerting is disabled"
     echo "Try <ha-cfg set mail_on 1> to enable"
@@ -1556,8 +1556,6 @@ raise-alert)
   ## ha-cfg.
   ##################################
   if [ "$ENABLE_ALERTS" -eq 1 ]; then
-    # shellcheck source=/dev/null
-    source /etc/ha-lizard/ha-lizard.func
     ALERT_NAME=$2
     ALERT_BODY=$3
     ALERT_LEVEL=$4
