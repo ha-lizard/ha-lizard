@@ -708,8 +708,8 @@ function vm_mon() {
 								local THIS_INDEX=$((RANDOM % 4095))
 								log "$FUNCNAME" "This host [ $available_host ] start on serial [ $THIS_INDEX ]"
 								if [ -z "${HOST_SELECT_LIST[$THIS_INDEX]}" ]; then
-									local HOST_SELECT_LIST[$THIS_INDEX]=$available_host
-									local SUCCESS=true
+									local HOST_SELECT_LIST[THIS_INDEX]=$available_host
+									SUCCESS=true
 								fi
 							done
 						done
@@ -933,6 +933,8 @@ function vm_start() {
 #
 #####################################
 function promote_slave() {
+	local SUCCESS=0 # Initialize SUCCESS as 0 (failure)
+
 	if xe pool-emergency-transition-to-master; then
 		log "$FUNCNAME" "xe pool-emergency-transition-to-master successful"
 	else
@@ -945,7 +947,7 @@ function promote_slave() {
 	while [ $REC_COUNT -lt 5 ] && [ "$SUCCESS" != "1" ]; do
 		if xe pool-recover-slaves; then
 			log "$FUNCNAME" "xe pool-recover-slaves successfully executed"
-			local SUCCESS=1
+			SUCCESS=1
 		else
 			sleep 5
 			REC_COUNT=$((REC_COUNT + 1))
