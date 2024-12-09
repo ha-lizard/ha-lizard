@@ -1781,8 +1781,7 @@ function autoselect_slave() {
 		log "$FUNCNAME" "This host UUID found: $THIS_HOST_UUID"
 	else
 		log "$FUNCNAME" "This host UUID not found - $FCT_NAME failed"
-		# TODO: Should this not return 1 instead ?
-		local ERROR=1
+		return 1
 	fi
 
 	local MASTER_HOST_UUID
