@@ -5,6 +5,8 @@ root = true
 [*]
 charset = utf-8                 # Use UTF-8 encoding
 end_of_line = lf                # Use LF for line endings (Unix-style)
+indent_size = 2                 # Google Shell Guide uses 2 spaces for indentation
+indent_style = space            # Use spaces for indentation (Google Shell Guide recommends 2 spaces)
 insert_final_newline = true     # Ensure the file ends with a newline
 trim_trailing_whitespace = true # Remove trailing whitespace on save
 
