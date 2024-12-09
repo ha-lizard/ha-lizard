@@ -45,14 +45,14 @@ source /etc/ha-lizard/ha-lizard.init
 ########################################
 function check_logger_processes() {
 	log "$FUNCNAME" "Checking logger processes"
-	LOG_PROCESS_COUNT=$(ps aux | grep "$PROG_NAME".sh | wc -l)
+	# BUG: PROG_NAME not setup
+	LOG_PROCESS_COUNT=$(pgrep -f "$PROG_NAME".sh | wc -l)
 	if [ "$LOG_PROCESS_COUNT" -gt 20 ]; then
 		log "$FUNCNAME" "$LOG_PROCESS_COUNT log processes found, threshold is 20"
-		LOG_PIDS=$(ps aux | grep "$PROG_NAME".sh | awk '{print $2}')
+		LOG_PIDS=$(pgrep -f "$PROG_NAME".sh)
 		log "$FUNCNAME" "Killing PIDs $LOG_PIDS"
 		for i in "${LOG_PIDS[@]}"; do
-			kill "$i"
-			if [ $? -ne 0 ]; then
+			if kill "$i"; then
 				log "$FUNCNAME" "Failed to kill PID $i"
 			else
 				log "$FUNCNAME" "Successfully killed PID $i"
@@ -69,7 +69,7 @@ function check_logger_processes() {
 ######################################
 function log_experimental() {
 	if [ -p /dev/stdin ]; then
-		read LOG_ROWS
+		read -r LOG_ROWS
 		LOG_ROW_HEADER="WARNING:  "
 	else
 		LOG_ROWS=$1
@@ -80,8 +80,7 @@ function log_experimental() {
 	for logline in "${LOG_ROWS[@]}"; do
 		if [ "$ENABLE_LOGGING" = "1" ]; then
 			if [ "$2" ]; then
-				check_logging_enabled "$1"
-				if [ $? = "0" ]; then
+				if check_logging_enabled "$1"; then
 					$LOGGER -t ha-lizard "$! ${LOG_ROW_HEADER}$logline: $2"
 				fi
 			else
@@ -100,8 +99,7 @@ function log() {
 
 	if [ "$ENABLE_LOGGING" = "1" ]; then
 		if [ "$2" ]; then
-			check_logging_enabled "$1"
-			if [ $? = "0" ]; then
+			if check_logging_enabled "$1"; then
 				$LOGGER -t ha-lizard "$$ $1: $2"
 			fi
 		else
@@ -470,8 +468,7 @@ function ha_disabled() {
 # return 1 = host response FAIL
 #####################################
 function check_xapi() {
-	ping -c 1 -w 2 "$1" 1>/dev/null
-	if [ $? -eq 0 ]; then
+	if ping -c 1 -w 2 "$1" 1>/dev/null; then
 		##############################################################################
 		#Moved to CURL method for establishing HTTP socket connection version 1.6.42.3
 		##############################################################################
@@ -653,8 +650,7 @@ function vm_mon() {
 					#########################
 					# Check if HA is enabled
 					#########################
-					VM_HA_ON=$($XE vm-param-get uuid="$i" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
-					if [ $? -ne 0 ]; then
+					if VM_HA_ON=$($XE vm-param-get uuid="$i" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME"); then
 						log "$FUNCNAME" "Error retrieving ha-lizard-enabled value for VM: $i. Check if ha-lizard-enabled is set"
 						email "$FUNCNAME" "Error retrieving ha-lizard-enabled value for VM: $i. Check if ha-lizard-enabled is set"
 					fi
@@ -682,8 +678,7 @@ function vm_mon() {
 			log "$FUNCNAME" "Halted VMs found: ${HALTED_VMS[*]}"
 			log "$FUNCNAME" "Attempting to start VMs in halted state"
 			for j in "${HALTED_VMS[@]}"; do
-				validate_vm_safe_to_start_here "$j" "${THIS_POOL_UUID}"
-				if [ $? -ne 0 ]; then
+				if ! validate_vm_safe_to_start_here "$j" "${THIS_POOL_UUID}"; then
 					continue
 				fi
 
@@ -709,6 +704,7 @@ function vm_mon() {
 						for available_host in "${HOST_SELECT_LIST_RAW[@]}"; do
 							local SUCCESS=false
 							while [ $SUCCESS = false ]; do
+								# Generate random index without using unnecessary $() syntax
 								local THIS_INDEX=$((RANDOM % 4095))
 								log "$FUNCNAME" "This host [ $available_host ] start on serial [ $THIS_INDEX ]"
 								if [ -z "${HOST_SELECT_LIST[$THIS_INDEX]}" ]; then
@@ -782,7 +778,7 @@ function vm_mon() {
 						THIS_HOST_CURRENT_XAPI_POWER_STATE=$($XE vm-param-get uuid="$j" param-name=power-state)
 						if [ "$THIS_HOST_CURRENT_XAPI_POWER_STATE" = "halted" ]; then
 							local VM_RUNNING_ON_THIS_HOST
-							VM_RUNNING_ON_THIS_HOST=$($LIST_DOMAINS | grep "$j" | wc -l)
+							VM_RUNNING_ON_THIS_HOST=$($LIST_DOMAINS | grep -c "$j")
 							if [ "$VM_RUNNING_ON_THIS_HOST" -gt 0 ]; then
 								log "$FUNCNAME" "VM [ $j ] reported as running. Should be halted."
 								local VM_DOM_TO_DESTROY
@@ -914,8 +910,7 @@ function validate_vm_home_pool() {
 # Start specified VM for the passed in UUID
 ###########################################
 function vm_start() {
-	$XE vm-start uuid="$1"
-	if [[ "$?" = "0" ]]; then
+	if $XE vm-start uuid="$1"; then
 		log "$FUNCNAME" "Successfully started VM $1"
 	else
 		log "$FUNCNAME" "Error starting failed VM $1"
@@ -938,8 +933,7 @@ function vm_start() {
 #
 #####################################
 function promote_slave() {
-	xe pool-emergency-transition-to-master
-	if [ $? -eq 0 ]; then
+	if xe pool-emergency-transition-to-master; then
 		log "$FUNCNAME" "xe pool-emergency-transition-to-master successful"
 	else
 		log "$FUNCNAME" "xe pool-emergency-transition-to-master failed - Failed to promote this host to pool master"
@@ -949,8 +943,7 @@ function promote_slave() {
 	sleep 15
 	REC_COUNT=0
 	while [ $REC_COUNT -lt 5 ] && [ "$SUCCESS" != "1" ]; do
-		xe pool-recover-slaves
-		if [ $? -eq 0 ]; then
+		if xe pool-recover-slaves; then
 			log "$FUNCNAME" "xe pool-recover-slaves successfully executed"
 			local SUCCESS=1
 		else
@@ -1095,8 +1088,7 @@ function write_pool_state() {
 	MASTER_UUID=$($XE pool-list | grep -e master | awk -F ": " '{print $2}')
 	if [ "$MASTER_UUID" ]; then
 		log "$FUNCNAME" "MASTER UUID found: $MASTER_UUID"
-		$ECHO "$MASTER_UUID" >"$STATE_PATH"/master_uuid
-		if [ $? -eq "0" ]; then
+		if echo "$MASTER_UUID" >"$STATE_PATH"/master_uuid; then
 			log "$FUNCNAME" "MASTER UUID: $MASTER_UUID written to local state storage"
 		else
 			log "$FUNCNAME" "Error: Failed to write MASTER UUID: $MASTER_UUID to local state storage"
@@ -1161,8 +1153,7 @@ function write_pool_state() {
 	# Check if ha-lizard is enabled for pool and write
 	# to state file
 	################################################
-	check_ha_enabled
-	if [ $? -eq 0 ]; then
+	if check_ha_enabled; then
 		$ECHO true >"$STATE_PATH"/ha_lizard_enabled
 	else
 		$ECHO false >"$STATE_PATH"/ha_lizard_enabled
@@ -1171,8 +1162,7 @@ function write_pool_state() {
 	################################################
 	# Find the UUID for this host and write to disk
 	################################################
-	THIS_HOST_UUID=$($XE host-list hostname="$(hostname)" --minimal)
-	if [ $? -eq 0 ]; then
+	if THIS_HOST_UUID=$($XE host-list hostname="$(hostname)" --minimal); then
 		$ECHO "$THIS_HOST_UUID" >"$STATE_PATH"/local_host_uuid
 	else
 		$ECHO 1 >"$STATE_PATH"/local_host_uuid
@@ -1181,8 +1171,7 @@ function write_pool_state() {
 	################################################
 	# Get number of hosts in pool and write to disk
 	################################################
-	POOL_NUM_HOSTS=$($XE host-list enabled=true params=name-label | grep name | wc -l)
-	if [ $? -eq 0 ]; then
+	if POOL_NUM_HOSTS=$($XE host-list enabled=true params=name-label | grep -c name-label); then
 		log "$FUNCNAME" "Pool contains $POOL_NUM_HOSTS hosts. Writing to $STATE_PATH/pool_num_hosts"
 		$ECHO "$POOL_NUM_HOSTS" >"$STATE_PATH"/pool_num_hosts
 	else
@@ -1367,7 +1356,7 @@ function check_slave_status() {
 	#######################################
 	local ARR_SUM=0
 	for i in "${SLAVE_XAPI_STATUS_ARRAY[@]}"; do
-		ARR_SUM=$(($i + ARR_SUM))
+		ARR_SUM=$((i + ARR_SUM))
 	done
 
 	########################################
@@ -1492,8 +1481,7 @@ function check_slave_status() {
 				# Clear possible hung power states
 				###################################
 				log "$FUNCNAME" "Resetting Power State for VM: $vm_to_reset"
-				xe_variable_wrapper 2 vm-reset-powerstate uuid="$vm_to_reset" --force
-				if [[ $? = "0" ]]; then
+				if xe_variable_wrapper 2 vm-reset-powerstate uuid="$vm_to_reset" --force; then
 					log "$FUNCNAME" "Power State for uuid: $vm_to_reset set to: halted"
 				else
 					log "$FUNCNAME" "Error resetting power state for VM UUID: $vm_to_reset"
@@ -1514,9 +1502,8 @@ function check_slave_status() {
 			for iii in $($XE pbd-list host-uuid="$host" --minimal); do
 				log "$FUNCNAME" "Resetting VDI: $iii on host: $host"
 				STORE=$($XE pbd-param-get uuid="$iii" param-name=sr-uuid)
-				$RESET_VDI "$host" "$STORE"
 
-				if [ $? = "0" ]; then
+				if $RESET_VDI "$host" "$STORE"; then
 					log "$FUNCNAME" "Resetting VDI: $iii Success!"
 				else
 					log "$FUNCNAME" "Resetting VDI: $iii ERROR!"
@@ -1538,8 +1525,7 @@ function check_slave_status() {
 			##############################
 			if [[ $FENCE_HOST_FORGET = "1" ]]; then
 				log "$FUNCNAME" "Removing host: $UUID_THIS_RUN from Pool"
-				$XE host-forget uuid="$UUID_THIS_RUN" --force
-				if [ $? = "0" ]; then
+				if $XE host-forget uuid="$UUID_THIS_RUN" --force; then
 					log "$FUNCNAME" "Successfully removed host: $UUID_THIS_RUN from pool"
 					log "$FUNCNAME" "Removing local storage and removable media from pool for failed host"
 					########################################
@@ -1548,8 +1534,7 @@ function check_slave_status() {
 					(
 						sleep 45
 						for sr in $HOST_SRS; do
-							$XE sr-forget uuid="$sr"
-							if [ $? = "0" ]; then
+							if $XE sr-forget uuid="$sr"; then
 								log "$FUNCNAME" "Successfully removed SR: $sr from pool"
 							else
 								log "$FUNCNAME" "Failed to remove SR: $sr from pool"
@@ -1965,8 +1950,7 @@ function check_quorum() {
 	fi
 
 	for i in "${IP_LIST[@]}"; do
-		ping -c 1 -w 2 "$i" >/dev/null
-		if [ $? -eq 0 ]; then
+		if ping -c 1 -w 2 "$i" >/dev/null; then
 			log "$FUNCNAME" "Host IP: $i Response = OK"
 			HOST_RESP=$((HOST_RESP + 1))
 			log "$FUNCNAME" "LIVE HOSTs = $HOST_RESP"
@@ -1986,11 +1970,10 @@ function check_quorum() {
 		H_COUNT=0
 		HR_COUNT=0
 		for j in "${FENCE_HEURISTICS_IPS[@]}"; do
-			H_COUNT=$(($H_COUNT + 1))
-			ping -c 1 -w 2 "$j" >/dev/null
-			if [ $? -eq 0 ]; then
+			H_COUNT=$((H_COUNT + 1))
+			if ping -c 1 -w 2 "$j" >/dev/null; then
 				log "$FUNCNAME" "Heuristic IP: $j Response = OK"
-				HR_COUNT=$(($HR_COUNT + 1))
+				HR_COUNT=$((HR_COUNT + 1))
 				log "$FUNCNAME" "Successful Replies = $HR_COUNT"
 			else
 				log "$FUNCNAME" "Heuristic IP: $j Response = Fail"
@@ -2002,7 +1985,7 @@ function check_quorum() {
 
 	if [ "$H_COUNT" ] && [ "$H_COUNT" != "0" ] && [ "$H_COUNT" = "$HR_COUNT" ]; then
 		log "$FUNCNAME" "Additional heuristic vote success. Incrementing vote by 1"
-		HOST_RESP=$(($HOST_RESP + 1))
+		HOST_RESP=$((HOST_RESP + 1))
 	else
 		log "$FUNCNAME" "Failed to connect to 1 or more heuristic IP address(es) [${FENCE_HEURISTICS_IPS[*]}]"
 		email "$FUNCNAME" "Failed to connect to 1 or more heuristic IP address(es) [${FENCE_HEURISTICS_IPS[*]}]"
@@ -2012,7 +1995,7 @@ function check_quorum() {
 	########################################
 	# Determine quorum for remaining hosts
 	########################################
-	MIN_HOSTS=$(($TOTAL_HOSTS / 2))
+	MIN_HOSTS=$((TOTAL_HOSTS / 2))
 	log "$FUNCNAME" "Minimum number of hosts needed to allow fencing = $MIN_HOSTS + 1"
 	if [ $HOST_RESP -gt $MIN_HOSTS ]; then
 		log "$FUNCNAME" "$HOST_RESP Hosts found. Minimum needed = $MIN_HOSTS + 1. Fencing allowed"
@@ -2130,8 +2113,7 @@ function disable_ha_lizard() {
 	local POOL_UUID
 	POOL_UUID=$(xe pool-list --minimal)
 	log "$FUNCNAME" "Attempting to forcefully disable HA-Lizard"
-	xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false
-	if [ $? -ne 0 ]; then
+	if xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false; then
 		log "$FUNCNAME" "Error encountered while disabling HA-Lizard"
 		return 1
 	else
@@ -2299,10 +2281,10 @@ function stop_vms_on_host() {
 	## get anyway
 	##########################
 	local NUM_TASKS
-	NUM_TASKS=$(xe task-list | grep "hard_shutdown" | wc -l)
+	NUM_TASKS=$(xe task-list | grep -c "hard_shutdown")
 	while [ "$NUM_TASKS" -gt 0 ]; do
 		sleep 2
-		NUM_TASKS=$(xe task-list | grep "hard_shutdown" | wc -l)
+		NUM_TASKS=$(xe task-list | grep -c "hard_shutdown")
 		if [ "$NUM_TASKS" -gt 0 ]; then
 			log "$FUNCNAME" "[ $NUM_TASKS ] VMs pending shutdown"
 			sleep 1
@@ -2490,7 +2472,7 @@ function make_box() {
 	COUNT=0
 	while [ $COUNT -lt $HORIZ_LEN ]; do
 		echo -n "$CHAR_HORIZONTAL"
-		COUNT=$(($COUNT + 1))
+		COUNT=$((COUNT + 1))
 	done
 	echo
 } #End function make_box
@@ -2742,7 +2724,7 @@ function validate_this_host_vm_states {
 	RETVAL=$?
 	if [ $RETVAL -ne 0 ] || [ -z "$MY_HOST_UUID" ]; then
 		log "$FUNCNAME" "This host UUID not found in [ $STATE_PATH/local_host_uuid ] - using alternate method"
-		MY_HOST_UUID=$($XE host-list hostname="$HOST" --minimal)
+		MY_HOST_UUID=$($XE host-list hostname="$(hostname)" --minimal)
 		RETVAL=$?
 		if [ $RETVAL -ne 0 ]; then
 			log "$FUNCNAME" "Error retrieving this host's UUID - giving up"
@@ -2883,7 +2865,6 @@ function check_replication_link_state() {
 						log "$FUNCNAME" "Resource [$resource] reported as [$THIS_RESOURCE_STATE]"
 						log "$FUNCNAME" "Storage Network is still connected to Peer - returning 1"
 						return 1
-						break
 					else
 						log "$FUNCNAME" "Storage network for resource [$resource] is [$THIS_RESOURCE_STATE]"
 					fi
