@@ -435,10 +435,10 @@ if [[ $STATE == slave* ]]; then
 		THIS_SLAVE_UUID=$($CAT "$STATE_PATH"/local_host_uuid)
 		AUTOPROMOTE_UUID=$($CAT "$STATE_PATH"/autopromote_uuid)
 		if [ "$THIS_SLAVE_UUID" = "$AUTOPROMOTE_UUID" ]; then
-			log "This slave - $HOST: $THIS_SLAVE_UUID selected as allowed to become master: setting ALLOW_PROMOTE_MASTER=1"
+			log "This slave - $(hostname): $THIS_SLAVE_UUID selected as allowed to become master: setting ALLOW_PROMOTE_MASTER=1"
 			ALLOW_PROMOTE_SLAVE=1
 		else
-			log "This slave- $HOST: $THIS_SLAVE_UUID not permitted to become master"
+			log "This slave- $(hostname): $THIS_SLAVE_UUID not permitted to become master"
 		fi
 
 	else
