@@ -683,7 +683,6 @@ function vm_mon() {
         fi
 
         (
-          source /etc/ha-lizard/ha-lizard.func
           VM_NAME=$($XE vm-param-get uuid="$j" param-name=name-label)
           log "$FUNCNAME" "Starting VM: $VM_NAME UUID: $j"
           email "$FUNCNAME" "Starting VM: $VM_NAME UUID: $j"
