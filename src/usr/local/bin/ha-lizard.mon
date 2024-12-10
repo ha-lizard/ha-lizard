@@ -1,0 +1,96 @@
+#!/bin/bash
+################################################################################
+# Script Name: ha-lizard.mon
+# Description: This script monitors and manages instances of ha-lizard process.
+#              It ensures that only one instance of the process runs at a time,
+#              and can restart the process if necessary. It includes features
+#              like logging, process counting, and automatic process killing
+#              based on defined thresholds.
+#
+# Usage: ./ha-lizard.mon [PID_FILE_PATH]
+#        - PID_FILE_PATH (optional): If provided, the script will write the
+#          spawned process IDs to the specified file.
+#
+################################################################################
+
+# shellcheck source=/dev/null
+
+# Script configuration
+PROC_NAME="ha-lizard"
+LOCK_FILE="/var/lock/subsys/${PROC_NAME}"
+EXECUTE="/usr/bin/ha-lizard.sh"
+GLOBAL_CONF="/etc/ha-lizard/ha-lizard.pool.conf"
+OVERRIDE_CONF="/etc/ha-lizard/ha-lizard.init"
+LIB_FUNCTIONS="/etc/ha-lizard/ha-lizard.func"
+
+# Source configuration files
+source "${GLOBAL_CONF}"
+source "${OVERRIDE_CONF}"
+source "${LIB_FUNCTIONS}"
+
+######################################
+## Don't allow multiple instances
+######################################
+EXEC_NAME=$(basename "$0")
+INSTANCES=$(pgrep "${EXEC_NAME}")
+NUM_INSTANCES=$(echo "$INSTANCES" | wc -l)
+
+# If multiple instances are running, exit
+if [[ "${NUM_INSTANCES}" -gt 1 ]]; then
+  echo "Another instance is running"
+  exit 1
+fi
+
+#######################################
+## Redirect terminal to log and store child processes
+#######################################
+SPAWNED_PROCS=()
+
+# Redirect stdout and stderr to logger and store child processes' PIDs
+exec 1> >(logger -t "ha-lizard-NOTICE-$0") && mapfile -t SPAWNED_PROCS < <(pgrep -P $!)
+exec 2> >(logger -t "ha-lizard-ERROR-$0") && mapfile -t SPAWNED_PROCS < <(pgrep -P $!)
+
+# If argument 1 is provided, write the spawned processes' PIDs to it
+if [[ -n "$1" ]]; then
+  echo "${SPAWNED_PROCS[@]}" >"$1" # Arg1 expected to be path to pid file
+fi
+
+# Monitor loop
+COUNT=0
+while :; do
+  EXECUTE_ID=$(basename "${EXECUTE}")
+  CHECK_PID=$(pidof -x "${EXECUTE_ID}")
+  CHECK_PID_TR=$(echo "$CHECK_PID" | tr -d '[:space:]')
+
+  if [[ -n "$CHECK_PID_TR" && -e "$LOCK_FILE" ]]; then
+    COUNT=$((COUNT + 1))
+    log "$PROC_NAME already running: Attempt $COUNT on PIDs: $CHECK_PID"
+
+    if [[ "$COUNT" -gt "$MONITOR_MAX_STARTS" ]]; then
+      email "$PROC_NAME failed to spawn new instance after $COUNT attempts. MAX_STARTS is set to $MONITOR_MAX_STARTS. Check Host: $HOSTNAME for possible hung process"
+      log "$PROC_NAME failed to spawn new instance after $COUNT attempts. Check $HOSTNAME for possible hung process"
+
+      if [[ "$MONITOR_KILLALL" == "1" ]]; then
+        log "MONITOR has reached configured threshold - $MONITOR_MAX_STARTS - MONITOR_KILLALL is enabled. Attempting to kill all existing processes"
+        killall -e "$EXECUTE_ID"
+
+        if [[ $? -eq 0 ]]; then
+          log "Successfully killed all instances of $EXECUTE_ID"
+        else
+          log "Failed to kill all instances of $EXECUTE_ID"
+          email "Host: $HOSTNAME: MONITOR has reached configured threshold - $MONITOR_MAX_STARTS - MONITOR_KILLALL is enabled. Failed to kill all existing processes"
+        fi
+      fi
+    fi
+
+    sleep "$MONITOR_SCANRATE"
+    continue
+
+  else
+    COUNT=0
+    log "Spawning new instance of $PROC_NAME"
+    check_logger_processes
+    "$EXECUTE" &
+    sleep "$MONITOR_DELAY"
+  fi
+done
