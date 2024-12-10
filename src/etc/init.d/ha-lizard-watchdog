@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 
+#
 # chkconfig: 2345 99 01
 # description: ha-lizard watchdog script
 # processname: ha-lizard-watchdog
@@ -27,16 +27,16 @@ check () {
 	while :
 	do
 		sleep $WATCH_INTERVAL
-		status $PROCESS_NAME &> /dev/null 
+		status $PROCESS_NAME &> /dev/null
 		RETVAL=$?
 		case $RETVAL in
-		
+
 		0)
 			log "$PROCESS_NAME Watchdog: $PROCESS_NAME running - OK "
 			;;
-		1)	
+		1)
 			log "$PROCESS_NAME Watchdog: $PROCESS_NAME is dead but pid file exists, starting $PROCESS_NAME"
-			/etc/init.d/$PROCESS_NAME start #service $PROCESS_NAME start 
+			/etc/init.d/$PROCESS_NAME start #service $PROCESS_NAME start
 			;;
 		2)
 			log "$PROCESS_NAME Watchdog: $PROCESS_NAME is dead but subsys locked, starting $PROCESS_NAME"
@@ -70,7 +70,7 @@ start()
 	check &
 	if [ $? = 0 ]
 	then
-		/bin/touch $LOCK_FILE 
+		/bin/touch $LOCK_FILE
 		/bin/touch $PID_FILE
 		echo `pidof -x $PROC_NAME` > $PID_FILE
 		echo -n $"Starting $PROC_NAME: "
@@ -79,7 +79,7 @@ start()
 		failure $"$PROC_NAME startup"
 		echo $"Failed to start $PROC_NAME"
 		killproc $PROC_NAME 2>/dev/null
-		rm -f $LOCK_FILE 
+		rm -f $LOCK_FILE
 		rm -f $PIDFILE
 		exit 1
 	fi
@@ -94,7 +94,7 @@ stop()
 	if [ $RETVAL = 0 ]
 	then
 		success $"$PROC_NAME stop"
-		rm -f $LOCK_FILE 
+		rm -f $LOCK_FILE
 		rm -f $PID_FILE
 	else
 		warning $"$PROC_NAME stop"

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 
+#
 # chkconfig: 2345 99 01
 # description: ha-lizard init script version 2.1 December 2016
 # processname: ha-lizard
@@ -72,7 +72,7 @@ start()
 	then
 		failure $"XAPI required to start"
 		echo $"XAPI required to start"
-		exit 1 
+		exit 1
 	fi
 
 	if  [ -e $PID_FILE ]
@@ -91,13 +91,13 @@ start()
 	RETVAL=$?
 	if [ $RETVAL = 0 ]
 	then
-		/bin/touch $LOCK_FILE 
+		/bin/touch $LOCK_FILE
 		/bin/touch $PID_FILE
 		echo $(pgrep -of $EXECUTE_STRING) > $PID_FILE
 		if [[ $WATCHDOG != $CALLED_BY* ]]
 		then
 			echo -n $"Starting $PROC_NAME: "
-			success 
+			success
 			echo
 		fi
 
@@ -126,7 +126,7 @@ stop()
 	if [ $RETVAL -eq 0 ]
 	then
 		pkill $(basename $EXECUTE_STRING)  # Stop monitor
-		rm -f $LOCK_FILE &> /dev/null 
+		rm -f $LOCK_FILE &> /dev/null
 		rm -f $PID_FILE &> /dev/null
 
 		if [ -e $EXECUTE_PID_FILE ]
@@ -141,7 +141,7 @@ stop()
 		echo $"Error stopping $PROC_NAME"
 		failure
 	fi
-} #End stop 
+} #End stop
 
 status ()
 {
@@ -156,7 +156,7 @@ status ()
 			echo $"$PROC_NAME running: $PID"
 			exit 0
 		fi
-		
+
 		warning $"$PROC_NAME is dead and /var/run pid file exists"
 		echo "$PROC_NAME is dead and /var/run pid file exists"
 		exit 1
