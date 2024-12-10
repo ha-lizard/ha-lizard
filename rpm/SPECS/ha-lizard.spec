@@ -54,9 +54,13 @@ mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard
 rsync -a --exclude=etc/ --exclude=usr/ * %{buildroot}%{_sysconfdir}/ha-lizard
 # Specifically install the bash completion file
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
+# Install install.params (this one will be overwritten during upgrades)
+install -D -m 644 etc/ha-lizard/install.params %{buildroot}%{_sysconfdir}/ha-lizard/install.params
+# Install ha-lizard.pool.conf (this one will be treated as a config file and not overwritten during upgrades)
+install -D -m 644 etc/ha-lizard/install.params %{buildroot}%{_sysconfdir}/ha-lizard/ha-lizard.pool.conf
 install -D -m 755 etc/init.d/ha-lizard %{buildroot}%{_sysconfdir}/init.d/ha-lizard
 install -D -m 755 etc/init.d/ha-lizard-watchdog %{buildroot}%{_sysconfdir}/init.d/ha-lizard-watchdog
-install -D -m 755 usr/lib64/ha-lizard/ha-lizard.func %{buildroot}%{_libdir}/ha-lizard/ha_lizard.func
+install -D -m 755 usr/lib64/ha-lizard/ha-lizard.func %{buildroot}%{_libdir}/ha-lizard/ha-lizard.func
 install -D -m 755 usr/local/bin/check_disk_smart_status %{buildroot}%{_bindir}/check_disk_smart_status
 install -D -m 755 usr/local/bin/email_alert.py %{buildroot}%{_bindir}/email_alert.py
 install -D -m 755 usr/local/bin/ha-cfg %{buildroot}%{_bindir}/ha-cfg
@@ -91,10 +95,6 @@ else
     chkconfig ha-lizard on
     chkconfig ha-lizard-watchdog on
 fi
-
-# Bootstrap initial start
-cp %{_sysconfdir}/ha-lizard/scripts/install.params %{_sysconfdir}/ha-lizard/ha-lizard.pool.conf
-
 
 # Create DB Keys
 POOL_UUID=`xe pool-list --minimal`
@@ -134,9 +134,11 @@ fi
 # Root directory files
 %{_sysconfdir}/ha-lizard/ha-lizard.init
 
-# Configuration files
+# Configuration files (this will NOT be replaced during upgrades)
 %config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.conf
 %config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.pool.conf
+# Configuration files (this WILL be replaced during upgrades)
+%config %{_sysconfdir}/ha-lizard/install.params
 
 # Scripts and binaries
 %{_sysconfdir}/ha-lizard/scripts

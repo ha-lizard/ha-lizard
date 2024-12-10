@@ -36,7 +36,7 @@ if [ -s /etc/ha-lizard/ha-lizard.pool.conf ]; then
   # shellcheck source=/dev/null
   source /etc/ha-lizard/ha-lizard.pool.conf #global configuration parameters for all hosts in pool - dynamic for pool
 else
-  cat /etc/ha-lizard/scripts/install.params >/etc/ha-lizard/ha-lizard.pool.conf
+  cat /etc/ha-lizard/install.params >/etc/ha-lizard/ha-lizard.pool.conf
 fi
 
 #######################################
