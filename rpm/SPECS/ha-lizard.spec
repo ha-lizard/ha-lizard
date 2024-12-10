@@ -59,6 +59,7 @@ install -D -m 755 etc/init.d/ha-lizard-watchdog %{buildroot}%{_sysconfdir}/init.
 install -D -m 755 usr/lib64/ha-lizard/ha-lizard.func %{buildroot}%{_libdir}/ha-lizard/ha_lizard.func
 install -D -m 755 usr/local/bin/check_disk_smart_status %{buildroot}%{_bindir}/check_disk_smart_status
 install -D -m 755 usr/local/bin/email_alert.py %{buildroot}%{_bindir}/email_alert.py
+install -D -m 755 usr/local/bin/ha-cfg %{buildroot}%{_bindir}/ha-cfg
 install -D -m 755 usr/local/bin/ha-lizard.mon %{buildroot}%{_bindir}/ha-lizard.mon
 install -D -m 755 usr/local/bin/ha-lizard.sh %{buildroot}%{_bindir}/ha-lizard.sh
 install -D -m 755 usr/local/bin/host_is_slave %{buildroot}%{_bindir}/host_is_slave
@@ -81,9 +82,6 @@ find %{_sysconfdir}/ha-lizard -type f -name "*.sh" -exec chmod +x {} \;
 find %{_sysconfdir}/ha-lizard -type f -name "*.tcl" -exec chmod +x {} \;
 find %{_sysconfdir}/ha-lizard/scripts -type f -exec chmod +x {} \;
 
-# Add CLI link
-ln -sf %{_sysconfdir}/ha-lizard/scripts/ha-cfg /usr/bin/ha-cfg || true
-
 # TODO: migrate to systemctl
 # Enable the services to start on boot
 if command -v systemctl &> /dev/null; then
@@ -102,7 +100,7 @@ cp %{_sysconfdir}/ha-lizard/scripts/install.params %{_sysconfdir}/ha-lizard/ha-l
 POOL_UUID=`xe pool-list --minimal`
 xe pool-param-add uuid=$POOL_UUID param-name=other-config XenCenter.CustomFields.ha-lizard-enabled=false &>/dev/null || true
 xe pool-param-add uuid=$POOL_UUID param-name=other-config autopromote_uuid="" &>/dev/null || true
-%{_sysconfdir}/ha-lizard/scripts/ha-cfg insert &>/dev/null
+%{_bindir}/ha-cfg insert &>/dev/null
 
 # TODO: Update installation version
 #%{_sysconfdir}/ha-lizard/scripts/post_version.py HAL-__VERSION__-__RELEASE__
@@ -176,6 +174,7 @@ fi
 # Include the python and bash script in /usr/bin/
 %{_bindir}/check_disk_smart_status
 %{_bindir}/email_alert.py
+%{_bindir}/ha-cfg
 %{_bindir}/ha-lizard.mon
 %{_bindir}/ha-lizard.sh
 %{_bindir}/host_is_slave
