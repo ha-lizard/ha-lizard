@@ -1,5 +1,5 @@
-%define version      __VERSION__
-%define release      __RELEASE__
+%define version      6.6.6
+%define release      666
 %define buildarch    noarch
 %define name         ha-lizard
 
@@ -50,7 +50,16 @@ echo "Building skipped."
 %install
 # Install files into the buildroot
 mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard
+# fence directories
+mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard/fence/ILO
+mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard/fence/IRMC
+mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard/fence/XVM
+mkdir -p %{buildroot}%{_libexecdir}/ha-lizard/fence/ILO
+mkdir -p %{buildroot}%{_libexecdir}/ha-lizard/fence/IRMC
+mkdir -p %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM
+# states and logs
 mkdir -p %{buildroot}%{_localstatedir}/lib/ha-lizard/state
+mkdir -p %{buildroot}%{_localstatedir}/log/ha-lizard
 
 # Use rsync to copy all files except the 'etc' directory
 rsync -a --exclude=etc/ --exclude=usr/ --exclude=state * %{buildroot}%{_sysconfdir}/ha-lizard
@@ -73,6 +82,10 @@ install -D -m 755 usr/local/bin/initialize_cluster_services %{buildroot}%{_bindi
 install -D -m 755 usr/local/bin/recover_fenced_host %{buildroot}%{_bindir}/recover_fenced_host
 install -D -m 755 usr/local/bin/recover_forgotten_host %{buildroot}%{_bindir}/recover_forgotten_host
 install -D -m 755 usr/local/bin/watcher %{buildroot}%{_bindir}/watcher
+# fence files
+install -D -m 755 usr/libexec/ha-lizard/fence/ILO/ilo_fence.sh %{buildroot}%{_libexecdir}/ha-lizard/fence/ILO/
+install -D -m 755 usr/libexec/ha-lizard/fence/ILO/ilo_fence.tcl %{buildroot}%{_libexecdir}/ha-lizard/fence/ILO/
+touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/ILO/ILO.hosts
 
 %pre
 # Placeholder for pre-install actions
@@ -144,6 +157,9 @@ fi
 # Configuration files (this will NOT be replaced during upgrades)
 %config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.conf
 %config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.pool.conf
+# fence config files
+# TODO: rpmlint complain about the zero-length, but change should be on the scripts
+%config(noreplace) %{_sysconfdir}/ha-lizard/fence/ILO/ILO.hosts
 # Configuration files (this WILL be replaced during upgrades)
 %config %{_sysconfdir}/ha-lizard/install.params
 
@@ -193,5 +209,13 @@ fi
 %{_bindir}/recover_forgotten_host
 %{_bindir}/watcher
 
+# Application-specific executable files
+%{_libexecdir}/ha-lizard/fence/ILO/ilo_fence.sh
+%{_libexecdir}/ha-lizard/fence/ILO/ilo_fence.tcl
+
 # TODO: Add the CHANGELOG file following the RPM spec format
 #%changelog
+
+# TODO: add a logrotate
+# Create /var/log/ha-lizard directory
+%dir %{_localstatedir}/log/ha-lizard

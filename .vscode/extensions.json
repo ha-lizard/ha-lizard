@@ -9,6 +9,7 @@
     "ms-python.autopep8",
     "streetsidesoftware.code-spell-checker",
     "timonwong.shellcheck",
-    "1dot75cm.rpmspec"
+    "1dot75cm.rpmspec",
+    "rashwell.tcl"
   ]
 }
