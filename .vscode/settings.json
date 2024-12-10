@@ -101,6 +101,7 @@
     "SCANRATE",
     "sendmail",
     "setdefaulttimeout",
+    "sharedstatedir",
     "shellcheck",
     "smartctl",
     "smartmontools",

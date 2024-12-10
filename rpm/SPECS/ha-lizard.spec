@@ -50,8 +50,10 @@ echo "Building skipped."
 %install
 # Install files into the buildroot
 mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard
+mkdir -p %{buildroot}%{_localstatedir}/lib/ha-lizard/state
+
 # Use rsync to copy all files except the 'etc' directory
-rsync -a --exclude=etc/ --exclude=usr/ * %{buildroot}%{_sysconfdir}/ha-lizard
+rsync -a --exclude=etc/ --exclude=usr/ --exclude=state * %{buildroot}%{_sysconfdir}/ha-lizard
 # Specifically install the bash completion file
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
 # Install install.params (this one will be overwritten during upgrades)
@@ -104,6 +106,11 @@ xe pool-param-add uuid=$POOL_UUID param-name=other-config autopromote_uuid="" &>
 
 # TODO: Update installation version
 #%{_sysconfdir}/ha-lizard/scripts/post_version.py HAL-__VERSION__-__RELEASE__
+
+# Create empty files as ghost files, which will be created during runtime
+touch %{_localstatedir}/lib/ha-lizard/state/autopromote_uuid
+touch %{_localstatedir}/lib/ha-lizard/state/ha_lizard_enabled
+touch %{_localstatedir}/lib/ha-lizard/state/local_host_uuid
 
 echo "ha-lizard setup complete."
 
@@ -165,10 +172,11 @@ fi
 %doc %{_sysconfdir}/ha-lizard/doc/RELEASE
 
 # State files
-# TODO: change it to {_localstatedir}/lib/ to manage the state files
-%{_sysconfdir}/ha-lizard/state/autopromote_uuid
-%{_sysconfdir}/ha-lizard/state/ha_lizard_enabled
-%{_sysconfdir}/ha-lizard/state/local_host_uuid
+# Create the necessary directories
+%dir %{_localstatedir}/lib/ha-lizard/state
+%ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/autopromote_uuid
+%ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/ha_lizard_enabled
+%ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/local_host_uuid
 
 # bash completion
 %{_sysconfdir}/bash_completion.d/ha-cfg
