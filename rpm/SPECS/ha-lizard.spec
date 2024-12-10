@@ -1,5 +1,5 @@
-%define version      6.6.6
-%define release      666
+%define version      __VERSION__
+%define release      __RELEASE__
 %define buildarch    noarch
 %define name         ha-lizard
 
@@ -86,6 +86,9 @@ install -D -m 755 usr/local/bin/watcher %{buildroot}%{_bindir}/watcher
 install -D -m 755 usr/libexec/ha-lizard/fence/ILO/ilo_fence.sh %{buildroot}%{_libexecdir}/ha-lizard/fence/ILO/
 install -D -m 755 usr/libexec/ha-lizard/fence/ILO/ilo_fence.tcl %{buildroot}%{_libexecdir}/ha-lizard/fence/ILO/
 touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/ILO/ILO.hosts
+install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.sh %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM/
+install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.tcl %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM/
+touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/XVM/XVM.hosts
 
 %pre
 # Placeholder for pre-install actions
@@ -160,6 +163,7 @@ fi
 # fence config files
 # TODO: rpmlint complain about the zero-length, but change should be on the scripts
 %config(noreplace) %{_sysconfdir}/ha-lizard/fence/ILO/ILO.hosts
+%config(noreplace) %{_sysconfdir}/ha-lizard/fence/XVM/XVM.hosts
 # Configuration files (this WILL be replaced during upgrades)
 %config %{_sysconfdir}/ha-lizard/install.params
 
@@ -175,9 +179,7 @@ fi
 %{_sysconfdir}/init.d/ha-lizard-watchdog
 
 # Fencing scripts
-%{_sysconfdir}/ha-lizard/fence/ILO
 %{_sysconfdir}/ha-lizard/fence/IRMC
-%{_sysconfdir}/ha-lizard/fence/XVM
 
 # Documentation
 # TODO: use doc macro to handle the documentation files
@@ -212,6 +214,8 @@ fi
 # Application-specific executable files
 %{_libexecdir}/ha-lizard/fence/ILO/ilo_fence.sh
 %{_libexecdir}/ha-lizard/fence/ILO/ilo_fence.tcl
+%{_libexecdir}/ha-lizard/fence/XVM/xvm_fence.sh
+%{_libexecdir}/ha-lizard/fence/XVM/xvm_fence.tcl
 
 # TODO: Add the CHANGELOG file following the RPM spec format
 #%changelog
