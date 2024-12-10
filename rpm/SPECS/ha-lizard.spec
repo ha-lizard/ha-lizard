@@ -54,14 +54,18 @@ mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard
 rsync -a --exclude=etc/ --exclude=usr/ * %{buildroot}%{_sysconfdir}/ha-lizard
 # Specifically install the bash completion file
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
+install -D -m 755 etc/init.d/ha-lizard %{buildroot}%{_sysconfdir}/init.d/ha-lizard
+install -D -m 755 etc/init.d/ha-lizard-watchdog %{buildroot}%{_sysconfdir}/init.d/ha-lizard-watchdog
+install -D -m 755 usr/lib64/ha-lizard/ha-lizard.func %{buildroot}%{_libdir}/ha-lizard/ha_lizard.func
 install -D -m 755 usr/local/bin/check_disk_smart_status %{buildroot}%{_bindir}/check_disk_smart_status
 install -D -m 755 usr/local/bin/email_alert.py %{buildroot}%{_bindir}/email_alert.py
+install -D -m 755 usr/local/bin/ha-lizard.mon %{buildroot}%{_bindir}/ha-lizard.mon
+install -D -m 755 usr/local/bin/ha-lizard.sh %{buildroot}%{_bindir}/ha-lizard.sh
 install -D -m 755 usr/local/bin/host_is_slave %{buildroot}%{_bindir}/host_is_slave
 install -D -m 755 usr/local/bin/initialize_cluster_services %{buildroot}%{_bindir}/initialize_cluster_services
 install -D -m 755 usr/local/bin/recover_fenced_host %{buildroot}%{_bindir}/recover_fenced_host
 install -D -m 755 usr/local/bin/recover_forgotten_host %{buildroot}%{_bindir}/recover_forgotten_host
 install -D -m 755 usr/local/bin/watcher %{buildroot}%{_bindir}/watcher
-install -D -m 755 usr/lib64/ha-lizard/ha-lizard.func %{buildroot}%{_libdir}/ha-lizard/ha_lizard.func
 
 %pre
 # Placeholder for pre-install actions
@@ -80,11 +84,7 @@ find %{_sysconfdir}/ha-lizard/scripts -type f -exec chmod +x {} \;
 # Add CLI link
 ln -sf %{_sysconfdir}/ha-lizard/scripts/ha-cfg /usr/bin/ha-cfg || true
 
-# Enable init scripts for systemd
 # TODO: migrate to systemctl
-cp %{_sysconfdir}/ha-lizard/init/ha-lizard /etc/init.d/
-cp %{_sysconfdir}/ha-lizard/init/ha-lizard-watchdog /etc/init.d/
-
 # Enable the services to start on boot
 if command -v systemctl &> /dev/null; then
     systemctl daemon-reload
@@ -135,7 +135,6 @@ fi
 
 # Root directory files
 %{_sysconfdir}/ha-lizard/ha-lizard.init
-%{_sysconfdir}/ha-lizard/ha-lizard.sh
 
 # Configuration files
 %config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.conf
@@ -147,10 +146,10 @@ fi
 # Libraries
 %{_libdir}/ha-lizard/ha-lizard.func
 
+
 # Init and systemd service files
-%{_sysconfdir}/ha-lizard/init/ha-lizard
-%{_sysconfdir}/ha-lizard/init/ha-lizard.mon
-%{_sysconfdir}/ha-lizard/init/ha-lizard-watchdog
+%{_sysconfdir}/init.d/ha-lizard
+%{_sysconfdir}/init.d/ha-lizard-watchdog
 
 # Fencing scripts
 %{_sysconfdir}/ha-lizard/fence/ILO
@@ -177,6 +176,8 @@ fi
 # Include the python and bash script in /usr/bin/
 %{_bindir}/check_disk_smart_status
 %{_bindir}/email_alert.py
+%{_bindir}/ha-lizard.mon
+%{_bindir}/ha-lizard.sh
 %{_bindir}/host_is_slave
 %{_bindir}/initialize_cluster_services
 %{_bindir}/recover_fenced_host

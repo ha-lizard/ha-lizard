@@ -8,6 +8,7 @@
     "gruntfuggly.todo-tree",
     "ms-python.autopep8",
     "streetsidesoftware.code-spell-checker",
-    "timonwong.shellcheck"
+    "timonwong.shellcheck",
+    "1dot75cm.rpmspec"
   ]
 }
