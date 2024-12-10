@@ -24,29 +24,82 @@
 ##################################################################################################
 
 ###################################################################
-# ha-lizard TCL XVM FENCING SCRIPT
+# HA-Lizard TCL XVM FENCING SCRIPT
 # USAGE:
-# xvm_fence <HOST IP Address> <User> <Password> <Command>
+# ./xvm_fence <HOST IP Address> <User> <Password> <Command>
 ###################################################################
 
+# Disable user interaction logs
 log_user 0
+
+# Set log file to append session output for review
 log_file -a /etc/ha-lizard/fence/XVM/xvm_fence.out
-set timeout 20 
 
-set XVM_IP	[lindex $argv 0]
-set USER_NAME	[lindex $argv 1]
-set XVM_PASSWD	[lindex $argv 2]
-set XVM_CMD	[lindex $argv 3]
+# Set script timeout (in seconds)
+set timeout 20
 
-spawn ssh -o "StrictHostKeyChecking no" $XVM_IP
+# Read command-line arguments
+set XVM_IP    [lindex $argv 0]   # Host IP address
+set USER_NAME [lindex $argv 1]   # Username
+set XVM_PASSWD [lindex $argv 2]  # Password
+set XVM_CMD   [lindex $argv 3]   # Command to execute
 
-expect "password: "
-send "$XVM_PASSWD\r"
+# Check if all required arguments are provided
+if {[llength $argv] != 4} {
+    puts "Error: Incorrect number of arguments. Usage: ./xvm_fence <IP> <User> <Password> <Command>"
+    exit 1
+}
 
-expect "*#"
-send "$XVM_CMD\r"
+# Spawn an SSH session
+spawn ssh -o "StrictHostKeyChecking no" $USER_NAME@$XVM_IP
 
-expect "*#" 
-send "exit\r"
-#interact
+# Handle SSH connection and authentication
+expect {
+    "password: " {
+        send "$XVM_PASSWD\r"
+    }
+    timeout {
+        puts "Error: SSH connection to $XVM_IP timed out."
+        exit 1
+    }
+    eof {
+        puts "Error: Unable to establish SSH connection to $XVM_IP."
+        exit 1
+    }
+}
 
+# Handle SSH session prompt
+expect {
+    "*#" {
+        # Send the command to execute on the remote host
+        send "$XVM_CMD\r"
+    }
+    timeout {
+        puts "Error: Did not receive shell prompt after authentication."
+        exit 1
+    }
+    eof {
+        puts "Error: Connection closed unexpectedly after login."
+        exit 1
+    }
+}
+
+# Wait for command execution and retrieve the result
+expect {
+    "*#" {
+        # Exit the SSH session gracefully
+        send "exit\r"
+    }
+    timeout {
+        puts "Error: Command execution timed out."
+        exit 1
+    }
+    eof {
+        puts "Error: Connection closed unexpectedly during command execution."
+        exit 1
+    }
+}
+
+# Allow the script to terminate cleanly
+# The log file will contain all session outputs
+exit 0
