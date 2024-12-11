@@ -1,5 +1,5 @@
-%define version      __VERSION__
-%define release      __RELEASE__
+%define version      6.6.6
+%define release      666
 %define docdir        %{_datadir}/doc/%{name}
 
 Name:           ha-lizard
@@ -67,10 +67,9 @@ mkdir -p %{buildroot}%{_localstatedir}/lib/ha-lizard/state
 mkdir -p %{buildroot}%{_localstatedir}/log/ha-lizard
 # documentation
 mkdir -p %{buildroot}%{docdir}
+# TODO: legacy scripts
+mkdir -p %{buildroot}%{_libexecdir}/ha-lizard/scripts
 
-# Use rsync to copy all files except the 'etc' directory
-# TODO: remove scripts folder later
-rsync -a scripts/  %{buildroot}%{_sysconfdir}/ha-lizard/scripts/
 # Specifically install the bash completion file
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
 install -D -m 644 etc/ha-lizard/install.params %{buildroot}%{_sysconfdir}/ha-lizard/install.params
@@ -106,6 +105,9 @@ install -D -m 644 CHANGELOG.md %{buildroot}%{docdir}/
 install -D -m 644 usr/share/doc/ha-lizard/INSTALL %{buildroot}%{docdir}/
 install -D -m 644 usr/share/doc/ha-lizard/HELPFILE %{buildroot}%{docdir}/
 install -D -m 644 usr/share/man/man1/ha-cfg.1 %{buildroot}%{_mandir}/man1/ha-cfg.1
+# TODO: legacy scripts
+install -D -m 755 usr/libexec/ha-lizard/scripts/* %{buildroot}%{_libexecdir}/ha-lizard/scripts/
+
 
 %pre
 # Placeholder for pre-install actions
@@ -115,10 +117,6 @@ exit 0
 #!/bin/bash
 set -e
 echo "Setting up ha-lizard..."
-
-# Set executable permissions
-# TODO: remove scripts folder later
-find %{_sysconfdir}/ha-lizard/scripts -type f -exec chmod +x {} \;
 
 # TODO: migrate to systemctl
 # Enable the services to start on boot
@@ -183,13 +181,8 @@ fi
 %config %{_sysconfdir}/ha-lizard/install.params
 # bash completion
 %config %{_sysconfdir}/bash_completion.d/ha-cfg
-
-# Scripts and binaries
-%{_sysconfdir}/ha-lizard/scripts
-
 # Libraries
 %{_libdir}/ha-lizard/ha-lizard.func
-
 
 # Init and systemd service files
 %{_sysconfdir}/init.d/ha-lizard
@@ -231,6 +224,8 @@ fi
 %{_libexecdir}/ha-lizard/fence/IRMC/irmc_stop.tcl
 %{_libexecdir}/ha-lizard/fence/XVM/xvm_fence.sh
 %{_libexecdir}/ha-lizard/fence/XVM/xvm_fence.tcl
+# TODO: legacy scripts
+%{_libexecdir}/ha-lizard/scripts/*
 
 # TODO: add a logrotate
 # Create /var/log/ha-lizard directory
