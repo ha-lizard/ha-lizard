@@ -26,7 +26,7 @@ jobs:
 
           # Install required dependencies
           sudo apt update
-          sudo DEBIAN_FRONTEND=noninteractive apt install -y rpm gnupg gh
+          sudo DEBIAN_FRONTEND=noninteractive apt install -y rpm gnupg gh jq
 
           # Create rpmbuild directory structure
           echo "Setting up rpmbuild directory structure"
@@ -40,8 +40,8 @@ jobs:
           tar --exclude='./.git' --exclude='./rpm/SPECS' -czf ~/rpmbuild/SOURCES/ha-lizard.tar.gz .
           cd ..
 
-      # Step 3: Extract version and release information
-      - name: Extract Version and Release
+      # Step 3: Extract version, release, and changelog info
+      - name: Extract Version, Release, and Changelog
         id: versioning
         run: |
           set -euo pipefail
@@ -72,22 +72,39 @@ jobs:
             RELEASE="${RELEASE_NUMBER}"
           fi
 
+          # Generate changelog
+          CHANGELOG=$(gh release view "$TAG_NAME" --json name,createdAt,body | jq -r '
+            .createdAt as $createdAt |
+            .name as $tagname |
+            "* " + ($createdAt | fromdateiso8601 | strftime("%a %b %d %Y")) + " Victor Hugo dos Santos <listas.vhs@gmail.com> - " + $tagname +
+            "\n" +
+            (.body | split("\r\n") | map(" - \(. )") | join("\n"))
+          ')
+
+          # Save information to environment variable for use in the spec file
+          echo "CHANGELOG=${CHANGELOG}" >> $GITHUB_ENV
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "RELEASE=${RELEASE}" >> $GITHUB_ENV
 
-      # Step 4: Build RPM package
+      # Step 4: Replace placeholders in spec file with version, release, and changelog
+      - name: Replace placeholders in .spec file
+        run: |
+          set -euo pipefail
+
+          # Replace placeholders in spec files with actual version, release, and changelog
+          sed -i "s/__VERSION__/${VERSION}/g" ~/rpmbuild/SPECS/*.spec
+          sed -i "s/__RELEASE__/${RELEASE}/g" ~/rpmbuild/SPECS/*.spec
+          echo "${CHANGELOG}" >> ~/rpmbuild/SPECS/*.spec
+
+      # Step 5: Build RPM package
       - name: Build SRPM and RPM Package
         run: |
           set -euo pipefail
 
-          # Replace placeholders in spec files with actual version and release
-          sed -i "s/__VERSION__/${VERSION}/g" ~/rpmbuild/SPECS/*.spec
-          sed -i "s/__RELEASE__/${RELEASE}/g" ~/rpmbuild/SPECS/*.spec
-
           # Build the RPM package
           rpmbuild -ba ~/rpmbuild/SPECS/*.spec
 
-      # Step 5: Import GPG Key
+      # Step 6: Import GPG Key
       - name: Import GPG Key
         run: |
           set -euo pipefail
@@ -100,7 +117,7 @@ jobs:
           echo "Setting trust level for GPG key"
           echo -e "5\ny\n" | gpg --batch --command-fd 0 --edit-key "${{ secrets.GPG_KEY_ID }}" trust
 
-      # Step 6: Sign RPMs
+      # Step 7: Sign RPMs
       - name: Sign RPMs
         run: |
           set -euo pipefail
@@ -116,7 +133,7 @@ jobs:
           find ~/rpmbuild/RPMS/ -name "*.rpm" -exec rpmsign --addsign {} \;
           find ~/rpmbuild/SRPMS/ -name "*.rpm" -exec rpmsign --addsign {} \;
 
-      # Step 7: Upload RPM and SRPM to the GitHub Release
+      # Step 8: Upload RPM and SRPM to the GitHub Release
       - name: Upload SRPM and RPM to GitHub Release
         run: |
           set -euo pipefail
