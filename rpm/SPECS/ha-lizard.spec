@@ -68,7 +68,6 @@ mkdir -p %{buildroot}%{_localstatedir}/log/ha-lizard
 # documentation
 mkdir -p %{buildroot}%{docdir}
 
-cd src
 # Use rsync to copy all files except the 'etc' directory
 # TODO: remove scripts folder later
 rsync -a scripts/  %{buildroot}%{_sysconfdir}/ha-lizard/scripts/
@@ -102,11 +101,11 @@ install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.sh %{buildroot}%{_li
 install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.tcl %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM/
 touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/XVM/XVM.hosts
 # documentation
-install -m 0644 doc/COPYING %{buildroot}%{docdir}/
-install -m 0644 doc/HELPFILE %{buildroot}%{docdir}/
-install -m 0644 doc/INSTALL %{buildroot}%{docdir}/
-install -m 0644 doc/RELEASE %{buildroot}%{docdir}/
-
+install -D -m 644 LICENSE %{buildroot}%{docdir}/
+install -D -m 644 CHANGELOG.md %{buildroot}%{docdir}/
+install -D -m 644 usr/share/doc/ha-lizard/INSTALL %{buildroot}%{docdir}/
+install -D -m 644 usr/share/doc/ha-lizard/HELPFILE %{buildroot}%{docdir}/
+install -D -m 644 usr/share/man/man1/ha-cfg.1 %{buildroot}%{_mandir}/man1/ha-cfg.1
 
 %pre
 # Placeholder for pre-install actions
@@ -197,10 +196,11 @@ fi
 %{_sysconfdir}/init.d/ha-lizard-watchdog
 
 # Documentation
-%doc %{docdir}/COPYING
+%doc %{docdir}/LICENSE
 %doc %{docdir}/HELPFILE
 %doc %{docdir}/INSTALL
-%doc %{docdir}/RELEASE
+%doc %{docdir}/CHANGELOG.md
+%{_mandir}/man1/ha-cfg.1.gz
 
 # State files
 # Create the necessary directories
@@ -208,8 +208,6 @@ fi
 %ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/autopromote_uuid
 %ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/ha_lizard_enabled
 %ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/local_host_uuid
-
-
 
 # Include the python and bash script in /usr/bin/
 %{_bindir}/check_disk_smart_status

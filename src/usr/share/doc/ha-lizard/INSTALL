@@ -61,4 +61,3 @@ Upgrading
 - Run the installer for the new version - following the instructions above for "Installing". Do not have the installer install the default
   parameter values as they will overwrite the previous configuration settings. If you accidentally destroy your configuration by having
   the installer insert the default setting then restore the previously backed up configuration with "ha-cfg restore /path/to/file"
-

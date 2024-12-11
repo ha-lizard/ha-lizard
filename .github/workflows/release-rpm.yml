@@ -37,7 +37,7 @@ jobs:
 
           # Create the source archive
           cd src
-          tar --exclude='./.git' --exclude='./rpm/SPECS' -czf ~/rpmbuild/SOURCES/ha-lizard.tar.gz .
+          tar -czf ~/rpmbuild/SOURCES/ha-lizard.tar.gz . ../CHANGELOG.md ../LICENSE
           cd ..
 
       # Step 3: Extract version, release, and changelog info

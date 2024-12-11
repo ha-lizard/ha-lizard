@@ -1519,11 +1519,7 @@ email_debug)
   ;;
 
 help)
-  if [ -e $HELPFILE ]; then
-    fold -w 80 -s $HELPFILE | less
-  else
-    echo "Missing help file"
-  fi
+  man ha-cfg
   ;;
 
 show-alerts)
