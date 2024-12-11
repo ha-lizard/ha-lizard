@@ -80,16 +80,16 @@ install -D -m 644 etc/ha-lizard/install.params %{buildroot}%{_sysconfdir}/ha-liz
 install -D -m 755 etc/init.d/ha-lizard %{buildroot}%{_sysconfdir}/init.d/ha-lizard
 install -D -m 755 etc/init.d/ha-lizard-watchdog %{buildroot}%{_sysconfdir}/init.d/ha-lizard-watchdog
 install -D -m 755 usr/lib64/ha-lizard/ha-lizard.func %{buildroot}%{_libdir}/ha-lizard/ha-lizard.func
-install -D -m 755 usr/local/bin/check_disk_smart_status %{buildroot}%{_bindir}/check_disk_smart_status
-install -D -m 755 usr/local/bin/email_alert.py %{buildroot}%{_bindir}/email_alert.py
-install -D -m 755 usr/local/bin/ha-cfg %{buildroot}%{_bindir}/ha-cfg
-install -D -m 755 usr/local/bin/ha-lizard.mon %{buildroot}%{_bindir}/ha-lizard.mon
-install -D -m 755 usr/local/bin/ha-lizard.sh %{buildroot}%{_bindir}/ha-lizard.sh
-install -D -m 755 usr/local/bin/host_is_slave %{buildroot}%{_bindir}/host_is_slave
-install -D -m 755 usr/local/bin/initialize_cluster_services %{buildroot}%{_bindir}/initialize_cluster_services
-install -D -m 755 usr/local/bin/recover_fenced_host %{buildroot}%{_bindir}/recover_fenced_host
-install -D -m 755 usr/local/bin/recover_forgotten_host %{buildroot}%{_bindir}/recover_forgotten_host
-install -D -m 755 usr/local/bin/watcher %{buildroot}%{_bindir}/watcher
+install -D -m 755 usr/bin/check_disk_smart_status %{buildroot}%{_bindir}/check_disk_smart_status
+install -D -m 755 usr/bin/email_alert.py %{buildroot}%{_bindir}/email_alert.py
+install -D -m 755 usr/bin/ha-cfg %{buildroot}%{_bindir}/ha-cfg
+install -D -m 755 usr/bin/ha-lizard.mon %{buildroot}%{_bindir}/ha-lizard.mon
+install -D -m 755 usr/bin/ha-lizard.sh %{buildroot}%{_bindir}/ha-lizard.sh
+install -D -m 755 usr/bin/host_is_slave %{buildroot}%{_bindir}/host_is_slave
+install -D -m 755 usr/bin/initialize_cluster_services %{buildroot}%{_bindir}/initialize_cluster_services
+install -D -m 755 usr/bin/recover_fenced_host %{buildroot}%{_bindir}/recover_fenced_host
+install -D -m 755 usr/bin/recover_forgotten_host %{buildroot}%{_bindir}/recover_forgotten_host
+install -D -m 755 usr/bin/watcher %{buildroot}%{_bindir}/watcher
 # fence files
 install -D -m 755 usr/libexec/ha-lizard/fence/ILO/ilo_fence.sh %{buildroot}%{_libexecdir}/ha-lizard/fence/ILO/
 install -D -m 755 usr/libexec/ha-lizard/fence/ILO/ilo_fence.tcl %{buildroot}%{_libexecdir}/ha-lizard/fence/ILO/
