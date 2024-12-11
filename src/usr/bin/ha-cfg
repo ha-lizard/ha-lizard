@@ -21,7 +21,7 @@ CHECK_PARAMS_DEPRECATED=(FENCE_HOST_FORGET)
 CHECK_PARAMS_NULL_ALLOWED=(FENCE_IPADDRESS FENCE_PASSWD DISABLED_VAPPS SMTP_USER SMTP_PORT)
 CHECK_PARAMS_IP_ADDRESS=(FENCE_IPADDRESS FENCE_HEURISTICS_IPS)
 STATE_FILES=/var/lib/ha-lizard/state
-LOG_EXEC='/etc/ha-lizard/scripts/log'
+LOG_EXEC='/usr/libexec/ha-lizard/log'
 TIMEOUT=false
 
 #########################
@@ -31,7 +31,7 @@ TIMEOUT=false
 #########################
 if [[ $(cat /etc/xensource/pool.conf) == slave* ]]; then
   # TODO: change timeout for built-in timeout
-  if [ "$(/etc/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
+  if [ "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
     #########################################
     ## Lets display status if we can
     #########################################
@@ -47,7 +47,7 @@ fi
 ##########################
 if [[ "$3" = "timeout" || "$2" = "timeout" ]]; then
   # TODO: change timeout for built-in timeout
-  if [ "$(/etc/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
+  if [ "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
     exit 124
   fi
 elif [ ${TIMEOUT} = "false" ]; then

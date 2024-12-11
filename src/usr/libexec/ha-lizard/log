@@ -1,0 +1,20 @@
+#!/bin/bash
+
+# Script Name: log
+# Purpose: Display real-time log entries for ha-lizard from the user log file.
+# Usage: Run the script. Use Ctrl+C to exit the session.
+
+# Display an introductory message to the user
+echo "Starting a real-time log session for ha-lizard..."
+echo "Press Control + C to exit."
+sleep 2
+
+# Clear the terminal screen for better log readability
+clear
+
+# Tail the user log file in real-time and filter for ha-lizard related entries
+# -f: Follow the file in real-time
+# -s .5: Poll for changes every 0.5 seconds
+# --line-buffered: Ensure the output is displayed immediately
+# Filter lines containing the keyword 'ha-lizard'
+tail -f -s 0.5 /var/log/user.log | grep --line-buffered 'ha-lizard'
