@@ -79,7 +79,7 @@ jobs:
             "* " + ($createdAt | fromdateiso8601 | strftime("%a %b %d %Y")) + " Victor Hugo dos Santos <listas.vhs@gmail.com> - " + $tagname +
             "\n" +
             (.body | split("\r\n") | map(" - \(. )") | join("\n"))
-          ') > ~/rpmbuild/SPECS/changelog.txt
+          ' > ~/rpmbuild/SPECS/changelog.txt
 
           # Save information to environment variable for use in the spec file
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
