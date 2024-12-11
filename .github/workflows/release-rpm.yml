@@ -72,17 +72,16 @@ jobs:
             RELEASE="${RELEASE_NUMBER}"
           fi
 
-          # Generate changelog
-          CHANGELOG=$(gh release view "$TAG_NAME" --json name,createdAt,body | jq -r '
+          # Generate changelog and save it to a file
+          gh release view "$TAG_NAME" --json name,createdAt,body | jq -r '
             .createdAt as $createdAt |
             .name as $tagname |
             "* " + ($createdAt | fromdateiso8601 | strftime("%a %b %d %Y")) + " Victor Hugo dos Santos <listas.vhs@gmail.com> - " + $tagname +
             "\n" +
             (.body | split("\r\n") | map(" - \(. )") | join("\n"))
-          ')
+          ') > ~/rpmbuild/SPECS/changelog.txt
 
           # Save information to environment variable for use in the spec file
-          echo "CHANGELOG=${CHANGELOG}" >> $GITHUB_ENV
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "RELEASE=${RELEASE}" >> $GITHUB_ENV
 
@@ -94,7 +93,8 @@ jobs:
           # Replace placeholders in spec files with actual version, release, and changelog
           sed -i "s/__VERSION__/${VERSION}/g" ~/rpmbuild/SPECS/*.spec
           sed -i "s/__RELEASE__/${RELEASE}/g" ~/rpmbuild/SPECS/*.spec
-          echo "${CHANGELOG}" >> ~/rpmbuild/SPECS/*.spec
+          # Append changelog content from the file into the spec file
+          cat ~/rpmbuild/SPECS/changelog.txt >> ~/rpmbuild/SPECS/*.spec
 
       # Step 5: Build RPM package
       - name: Build SRPM and RPM Package
