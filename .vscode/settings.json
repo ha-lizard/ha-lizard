@@ -51,6 +51,7 @@
     "cstate",
     "CWORD",
     "defattr",
+    "docdir",
     "domid",
     "domus",
     "DRAC",

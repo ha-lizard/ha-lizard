@@ -1,21 +1,25 @@
 %define version      __VERSION__
 %define release      __RELEASE__
-%define buildarch    noarch
-%define name         ha-lizard
+%define docdir        %{_datadir}/doc/%{name}
 
-Name:           %{name}
+Name:           ha-lizard
 Version:        %{version}
 Release:        %{release}
 Summary:        High Availability for XenServer and Xen Cloud Platform XAPI based dom0s
 Packager:       ha-lizard
 Group:          Productivity/Clustering/HA
-BuildArch:      noarch
-License:        GPLv3+
+BuildArch:      x86_64
+License:        GPLv3
 URL:            https://www.ha-lizard.com
 Source0:        ha-lizard.tar.gz
 
 %description
-HA-lizard provides complete automation for managing Xen server pools utilizing the XAPI management interface and toolstack (as in Xen Cloud Platform and XenServer). This hyper-converged software suite delivers full HA features within a given pool. The design is lightweight with no compromise to system stability, eliminating the need for traditional cluster management suites. HA logic includes detection and recovery of failed services and hosts.
+HA-lizard provides complete automation for managing Xen server pools utilizing
+the XAPI management interface and toolstack (as in Xen Cloud Platform and
+XenServer). This hyper-converged software suite delivers full HA features
+within a given pool. The design is lightweight with no compromise to system
+stability, eliminating the need for traditional cluster management suites. HA
+logic includes detection and recovery of failed services and hosts.
 
 Key features:
 * Auto-start of failed VMs or any VMs on host boot
@@ -37,7 +41,8 @@ Key features:
 * Dynamic cluster management for role selection and recovery
 * No dependencies - lightweight and stable for XenServer/XCP hosts
 
-This package is designed to enhance the HA capabilities of XenServer/XCP pools without introducing complexity or compromising system stability.
+This package is designed to enhance the HA capabilities of XenServer/XCP pools
+without introducing complexity or compromising system stability.
 
 %prep
 echo "Preparing build environment."
@@ -60,14 +65,18 @@ mkdir -p %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM
 # states and logs
 mkdir -p %{buildroot}%{_localstatedir}/lib/ha-lizard/state
 mkdir -p %{buildroot}%{_localstatedir}/log/ha-lizard
+# documentation
+mkdir -p %{buildroot}%{docdir}
 
+cd src
 # Use rsync to copy all files except the 'etc' directory
-rsync -a --exclude=etc/ --exclude=usr/ --exclude=state * %{buildroot}%{_sysconfdir}/ha-lizard
+# TODO: remove scripts folder later
+rsync -a scripts/  %{buildroot}%{_sysconfdir}/ha-lizard/scripts/
 # Specifically install the bash completion file
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
-# Install install.params (this one will be overwritten during upgrades)
 install -D -m 644 etc/ha-lizard/install.params %{buildroot}%{_sysconfdir}/ha-lizard/install.params
-# Install ha-lizard.pool.conf (this one will be treated as a config file and not overwritten during upgrades)
+install -D -m 644 etc/ha-lizard/ha-lizard.conf %{buildroot}%{_sysconfdir}/ha-lizard/ha-lizard.conf
+install -D -m 644 etc/ha-lizard/ha-lizard.init %{buildroot}%{_sysconfdir}/ha-lizard/ha-lizard.init
 install -D -m 644 etc/ha-lizard/install.params %{buildroot}%{_sysconfdir}/ha-lizard/ha-lizard.pool.conf
 install -D -m 755 etc/init.d/ha-lizard %{buildroot}%{_sysconfdir}/init.d/ha-lizard
 install -D -m 755 etc/init.d/ha-lizard-watchdog %{buildroot}%{_sysconfdir}/init.d/ha-lizard-watchdog
@@ -92,6 +101,11 @@ touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/IRMC/IRMC.hosts
 install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.sh %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM/
 install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.tcl %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM/
 touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/XVM/XVM.hosts
+# documentation
+install -m 0644 doc/COPYING %{buildroot}%{docdir}/
+install -m 0644 doc/HELPFILE %{buildroot}%{docdir}/
+install -m 0644 doc/INSTALL %{buildroot}%{docdir}/
+install -m 0644 doc/RELEASE %{buildroot}%{docdir}/
 
 
 %pre
@@ -104,8 +118,7 @@ set -e
 echo "Setting up ha-lizard..."
 
 # Set executable permissions
-find %{_sysconfdir}/ha-lizard -type f -name "*.sh" -exec chmod +x {} \;
-find %{_sysconfdir}/ha-lizard -type f -name "*.tcl" -exec chmod +x {} \;
+# TODO: remove scripts folder later
 find %{_sysconfdir}/ha-lizard/scripts -type f -exec chmod +x {} \;
 
 # TODO: migrate to systemctl
@@ -158,11 +171,9 @@ fi
 %files
 %defattr(-,root,root,-)
 
-# Root directory files
-%{_sysconfdir}/ha-lizard/ha-lizard.init
-
 # Configuration files (this will NOT be replaced during upgrades)
 %config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.conf
+%config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.init
 %config(noreplace) %{_sysconfdir}/ha-lizard/ha-lizard.pool.conf
 # fence config files
 # TODO: rpmlint complain about the zero-length, but change should be on the scripts
@@ -171,6 +182,8 @@ fi
 %config(noreplace) %{_sysconfdir}/ha-lizard/fence/XVM/XVM.hosts
 # Configuration files (this WILL be replaced during upgrades)
 %config %{_sysconfdir}/ha-lizard/install.params
+# bash completion
+%config %{_sysconfdir}/bash_completion.d/ha-cfg
 
 # Scripts and binaries
 %{_sysconfdir}/ha-lizard/scripts
@@ -184,12 +197,10 @@ fi
 %{_sysconfdir}/init.d/ha-lizard-watchdog
 
 # Documentation
-# TODO: use doc macro to handle the documentation files
-%doc doc/COPYING doc/HELPFILE doc/INSTALL doc/RELEASE
-%doc %{_sysconfdir}/ha-lizard/doc/COPYING
-%doc %{_sysconfdir}/ha-lizard/doc/HELPFILE
-%doc %{_sysconfdir}/ha-lizard/doc/INSTALL
-%doc %{_sysconfdir}/ha-lizard/doc/RELEASE
+%doc %{docdir}/COPYING
+%doc %{docdir}/HELPFILE
+%doc %{docdir}/INSTALL
+%doc %{docdir}/RELEASE
 
 # State files
 # Create the necessary directories
@@ -198,8 +209,7 @@ fi
 %ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/ha_lizard_enabled
 %ghost %attr(644,root,root) %{_localstatedir}/lib/ha-lizard/state/local_host_uuid
 
-# bash completion
-%{_sysconfdir}/bash_completion.d/ha-cfg
+
 
 # Include the python and bash script in /usr/bin/
 %{_bindir}/check_disk_smart_status
@@ -224,9 +234,9 @@ fi
 %{_libexecdir}/ha-lizard/fence/XVM/xvm_fence.sh
 %{_libexecdir}/ha-lizard/fence/XVM/xvm_fence.tcl
 
-# TODO: Add the CHANGELOG file following the RPM spec format
-#%changelog
-
 # TODO: add a logrotate
 # Create /var/log/ha-lizard directory
 %dir %{_localstatedir}/log/ha-lizard
+
+# INFO: Do not put anything after the changelog macro. github actions will add the changelog there.
+%changelog
