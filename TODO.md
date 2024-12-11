@@ -11,3 +11,7 @@ The scripts previously located in `/etc/ha-lizard/scripts` have been moved to `/
 - [**vm_backup.sh**](src/usr/libexec/ha-lizard/scripts/vm_backup.sh): This script may belong to a different project, as it covers a separate topic.
 
 For now, these will remain unchanged until the new version development begins.
+
+## Update version placeholder
+
+We are starting to use the **\_\_VERSION\_\_** on several scripts, this is a placeholder for later be replaced for the release tag via github actions. So, we will need to find the best way to optimize this change in all the files.
