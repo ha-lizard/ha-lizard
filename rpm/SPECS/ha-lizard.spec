@@ -1,5 +1,5 @@
-%define version      6.6.6
-%define release      666
+%define version      __VERSION__
+%define release      __RELEASE__
 %define docdir        %{_datadir}/doc/%{name}
 
 Name:           ha-lizard
