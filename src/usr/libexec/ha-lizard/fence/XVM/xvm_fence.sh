@@ -30,7 +30,7 @@ exec 2>/dev/null
 
 # Source required configuration and functions
 source /etc/ha-lizard/ha-lizard.init
-source /etc/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/ha-lizard.func
 
 #####################################
 # Connect to Host

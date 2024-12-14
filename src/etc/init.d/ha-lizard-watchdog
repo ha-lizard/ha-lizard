@@ -1,14 +1,15 @@
 #!/bin/bash
 #
 # chkconfig: 2345 99 01
-# description: ha-lizard watchdog script
+# description: ha-lizard-watchdog script version __VERSION__
 # processname: ha-lizard-watchdog
 
 # shellcheck source=/dev/null
 
-# Function library
+# Load function library
 . /etc/init.d/functions
 
+# Define constants
 WATCH_INTERVAL="10"
 PROCESS_NAME="ha-lizard"
 PROC_NAME="${PROCESS_NAME}-watchdog"
@@ -18,17 +19,21 @@ GLOBAL_CONF="/etc/ha-lizard/ha-lizard.pool.conf"
 OVERRIDE_CONF="/etc/ha-lizard/ha-lizard.init"
 LIB_FUNCTIONS="/usr/lib64/ha-lizard/ha-lizard.func"
 
-# Function to check the process status and take appropriate actions
-check_process_status() {
-  source ${LIB_FUNCTIONS}
-  source ${GLOBAL_CONF}
-  source ${OVERRIDE_CONF}
-  while :; do
-    sleep "${WATCH_INTERVAL}"
-    status "${PROCESS_NAME}" &>/dev/null
-    RETVAL=$?
+# Load necessary configuration files
+source "$LIB_FUNCTIONS"
+source "$GLOBAL_CONF"
+source "$OVERRIDE_CONF"
 
-    case "${RETVAL}" in
+#########################################
+# Description: Monitor the ha-lizard service and take appropriate actions
+#########################################
+check_process_status() {
+  while true; do
+    sleep "$WATCH_INTERVAL"
+    status "$PROCESS_NAME" &>/dev/null
+    local RETVAL=$?
+
+    case "$RETVAL" in
     0)
       log "${PROCESS_NAME} Watchdog: ${PROCESS_NAME} running - OK"
       ;;
@@ -48,8 +53,11 @@ check_process_status() {
   done
 }
 
-# Function to start the watchdog
+#########################################
+# Description: Start the watchdog process.
+#########################################
 start_watchdog() {
+  # Check if the watchdog process is already running
   if [[ -e "${PID_FILE}" ]]; then
     # Read each line (PID) from the PID file
     while read -r pid; do
@@ -63,6 +71,7 @@ start_watchdog() {
     done <"${PID_FILE}" # Redirect PID_FILE to the while loop
   fi
 
+  # Start the watchdog process
   if check_process_status; then
     touch "${LOCK_FILE}"
     touch "${PID_FILE}"
@@ -79,15 +88,17 @@ start_watchdog() {
   echo
 }
 
-# Function to stop the watchdog
+#########################################
+# Description: Stop the watchdog process.
+#########################################
 stop_watchdog() {
   echo -n "Stopping ${PROC_NAME}: "
   killproc "${PROC_NAME}" 2>/dev/null
   RETVAL=$?
 
   if [[ ${RETVAL} -eq 0 ]]; then
-    success "${PROC_NAME} stopped"
     rm -f "${LOCK_FILE}" "${PID_FILE}"
+    success "${PROC_NAME} stopped"
   else
     warning "Failed to stop ${PROC_NAME}"
     echo "Error stopping ${PROC_NAME}"
@@ -96,7 +107,9 @@ stop_watchdog() {
   echo
 }
 
-# Function to check the status of the watchdog
+#########################################
+# Description: Check the status of the watchdog process.
+#########################################
 check_watchdog_status() {
   if [[ -e "${PID_FILE}" ]]; then
     if [[ -e "${PID_FILE}" ]]; then

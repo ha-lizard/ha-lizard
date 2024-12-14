@@ -15,7 +15,7 @@ exec 2>/dev/null
 
 # Source HA-Lizard configuration and functions
 source /etc/ha-lizard/ha-lizard.init
-source /etc/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/ha-lizard.func
 
 # Log the initial operation
 log "fence_host: IRMC Searching for IP address for host: $1"

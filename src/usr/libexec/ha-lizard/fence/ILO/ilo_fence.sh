@@ -33,7 +33,7 @@ exec 2>/dev/null
 
 # Source configuration and functions
 source /etc/ha-lizard/ha-lizard.init
-source /etc/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/ha-lizard.func
 
 # Log the host being searched
 log "fence_host: Searching for IP address for host: $1"

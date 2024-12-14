@@ -21,7 +21,7 @@ LOCK_FILE="/var/lock/subsys/${PROC_NAME}"
 EXECUTE="/usr/bin/ha-lizard.sh"
 GLOBAL_CONF="/etc/ha-lizard/ha-lizard.pool.conf"
 OVERRIDE_CONF="/etc/ha-lizard/ha-lizard.init"
-LIB_FUNCTIONS="/etc/ha-lizard/ha-lizard.func"
+LIB_FUNCTIONS="/usr/lib64/ha-lizard/ha-lizard.func"
 
 # Source configuration files
 source "${GLOBAL_CONF}"
