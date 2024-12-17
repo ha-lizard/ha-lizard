@@ -21,7 +21,7 @@ within a given pool. The design is lightweight with no compromise to system
 stability, eliminating the need for traditional cluster management suites. HA
 logic includes detection and recovery of failed services and hosts.
 
-Key features:
+Key Features:
 * Auto-start of failed VMs or any VMs on host boot
 * Detection of failed hosts with automated VM recovery
 * Orphaned resource cleanup after host removal
@@ -45,6 +45,7 @@ This package is designed to enhance the HA capabilities of XenServer/XCP pools
 without introducing complexity or compromising system stability.
 
 %prep
+# Preparing the build environment by unpacking the source tarball
 echo "Preparing build environment."
 %setup -q -c
 
@@ -53,7 +54,7 @@ echo "Preparing build environment."
 echo "Building skipped."
 
 %install
-# Install files into the buildroot
+# Install files into the buildroot directory, ensuring proper file structure
 mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard
 # fence directories
 mkdir -p %{buildroot}%{_sysconfdir}/ha-lizard/fence/ILO
@@ -70,7 +71,7 @@ mkdir -p %{buildroot}%{docdir}
 # TODO: legacy scripts
 mkdir -p %{buildroot}%{_libexecdir}/ha-lizard/scripts
 
-# Specifically install the bash completion file
+# Specifically install each one of the file
 install -D -m 644 etc/bash_completion.d/ha-cfg %{buildroot}%{_sysconfdir}/bash_completion.d/ha-cfg
 install -D -m 644 etc/ha-lizard/install.params %{buildroot}%{_sysconfdir}/ha-lizard/install.params
 install -D -m 644 etc/ha-lizard/ha-lizard.conf %{buildroot}%{_sysconfdir}/ha-lizard/ha-lizard.conf
@@ -99,7 +100,7 @@ touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/IRMC/IRMC.hosts
 install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.sh %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM/
 install -D -m 755 usr/libexec/ha-lizard/fence/XVM/xvm_fence.tcl %{buildroot}%{_libexecdir}/ha-lizard/fence/XVM/
 touch %{buildroot}%{_sysconfdir}/ha-lizard/fence/XVM/XVM.hosts
-# documentation
+# Documentation
 install -D -m 644 LICENSE %{buildroot}%{docdir}/
 install -D -m 644 CHANGELOG.md %{buildroot}%{docdir}/
 install -D -m 644 usr/share/doc/ha-lizard/INSTALL %{buildroot}%{docdir}/
@@ -110,11 +111,21 @@ install -D -m 755 usr/libexec/ha-lizard/scripts/* %{buildroot}%{_libexecdir}/ha-
 
 
 %pre
-# Placeholder for pre-install actions
-exit 0
+# Check if the system is XenServer or XCP-ng using lsb_release
+if command -v lsb_release &>/dev/null; then
+    DISTRO_NAME=$(lsb_release -i | awk -F: '{print $2}' | xargs)
+
+    # Check for XenServer or XCP-ng in the Distributor ID
+    if [[ "$DISTRO_NAME" != "XenServer" && "$DISTRO_NAME" != "XCP-ng" ]]; then
+        echo "This package is designed for XenServer or XCP-ng systems only."
+        exit 1
+    fi
+else
+    echo "lsb_release command not found. This package can only be installed on XenServer or XCP-ng."
+    exit 1
+fi
 
 %post
-#!/bin/bash
 set -e
 echo "Setting up ha-lizard..."
 
@@ -145,23 +156,13 @@ touch %{_localstatedir}/lib/ha-lizard/state/local_host_uuid
 echo "ha-lizard setup complete."
 
 %preun
-#!/bin/bash
+# Pre-uninstallation cleanup (stop services before removal)
+# NOTE: $1 = 0 when uninstalling (package removal), $1 = 1 when upgrading
 if [ $1 -eq 0 ]; then
     systemctl stop ha-lizard || true
     systemctl stop ha-lizard-watchdog || true
     systemctl disable ha-lizard || true
     systemctl disable ha-lizard-watchdog || true
-fi
-
-%postun
-#!/bin/bash
-if [ $1 -eq 0 ]; then
-    rm -f /usr/bin/ha-cfg
-    rm -f %{_sysconfdir}/bash_completion.d/ha-cfg
-    rm -f %{_sysconfdir}/systemd/system/ha-lizard.service
-    rm -f %{_sysconfdir}/systemd/system/ha-lizard-watchdog.service
-    rm -f %{_sysconfdir}/init.d/ha-lizard-watchdog
-    rm -f %{_sysconfdir}/init.d/ha-lizard-watchdog
     systemctl daemon-reload || true
 fi
 
