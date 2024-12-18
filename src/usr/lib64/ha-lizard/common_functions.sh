@@ -41,6 +41,49 @@
 
 #######################################
 # Description:
+#   Validates whether a given string is a valid IPv4 address.
+# Arguments:
+#   - ip: A string representing an IPv4 address.
+# Returns:
+#   - 0 (true) if the address is valid
+#   - 1 (false) if the address is invalid
+# Example:
+#   is_valid_ipv4 "192.168.1.1"  # returns 0
+#   is_valid_ipv4 "999.999.999.999"  # returns 1
+#   is_valid_ipv4 "abc.def.ghi.jkl"  # returns 1
+#######################################
+is_valid_ipv4() {
+  local ip=$1
+  local octet
+
+  # Check if the input matches the IPv4 format: n.n.n.n, where n is 0-255
+  if [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+
+    # Split the IP into its four octets
+    IFS='.' read -r -a octets <<<"$ip"
+
+    # Validate that there are exactly 4 octets
+    if [[ ${#octets[@]} -ne 4 ]]; then
+      return 1
+    fi
+
+    # Check each octet to ensure it is within the range of 0 to 255
+    for octet in "${octets[@]}"; do
+      if ((octet < 0 || octet > 255)); then
+        return 1
+      fi
+    done
+
+    # If all checks pass, the IP is valid
+    return 0
+  fi
+
+  # Return 1 if the IP format is incorrect
+  return 1
+}
+
+#######################################
+# Description:
 #   Print a box around the given input text with centering and paging.
 #   The box is centered horizontally and vertically in the terminal.
 #   If the text is too long, it is split into multiple pages with a
