@@ -85,6 +85,52 @@ backup_file() {
   fi
 }
 
+# check_host_reachable: Checks if a host (IP address or hostname) is reachable via ping.
+#
+# Input:
+#   - host_to_check: The IP address or hostname of the host to check.
+#
+# Output:
+#   - Returns 0 if the host is reachable.
+#   - Returns 1 if the host is unreachable and the user chooses to exit.
+#   - Returns 2 if the host is unreachable and the user chooses to continue.
+#
+# Edge cases:
+#   - If the host is unreachable, the user is prompted to decide whether to exit or continue.
+#   - If the user chooses "no" or anything other than "yes", the function exits the script with status 1.
+#   - If the user chooses "yes", the function will return 2 to indicate continuation despite the unreachable host.
+check_host_reachable() {
+  # Host to check is passed as the first argument
+  local host_to_check=$1
+
+  # Output message indicating that a ping test will be attempted
+  echo "Pinging host $host_to_check..."
+
+  # Try to ping the host once, suppressing output to determine if it's reachable
+  if ! ping -c 1 "$host_to_check" >/dev/null 2>&1; then
+    # If the ping command fails, output that the host is not reachable
+    echo "The host $host_to_check is not reachable."
+
+    # Prompt the user to decide whether to continue with the installation or exit
+    echo "Would you like to continue anyway? (yes/no)"
+    read -r user_choice
+
+    # If the user answers anything other than "yes", exit with error code 1
+    if [ "$user_choice" != "yes" ]; then
+      echo "Exiting... Please check the host address and try again."
+      exit 1 # Exit the script with status 1 (failure)
+    else
+      # If the user chooses to continue despite the unreachable host
+      echo "Continuing despite the unreachable host."
+      return 2 # Return 2 to indicate continuation despite the issue
+    fi
+  else
+    # If the ping command succeeds, output that the host is reachable
+    echo "Host $host_to_check is reachable. Continuing."
+    return 0 # Return 0 to indicate the host is reachable and installation can continue
+  fi
+}
+
 #######################################
 # Description:
 #   Validates whether a given string is a valid IPv4 address.
