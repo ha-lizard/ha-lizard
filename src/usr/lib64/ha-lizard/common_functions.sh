@@ -39,6 +39,52 @@
 #     #   Output: Returns 0 if file exists, 1 otherwise.
 # }
 
+# backup_file: Backup a file while preserving its attributes and ownership.
+#
+# Input: file_path - the path to the file to be backed up.
+#
+# Output: 0 if the file was successfully backed up, 1 if the file does not exist
+#         or 2 if the backup operation failed.
+#
+# Edge cases:
+#   - If the file does not exist, the function will return 1.
+#   - If the file cannot be copied, the function will return 2.
+#
+# Example:
+#   Input: file_path="/etc/ha-lizard.conf"
+#   Output: Returns 0 if the file is successfully backed up, 1 or 2 otherwise.
+backup_file() {
+  # Get the file path from the function argument
+  local file_path="$1"
+
+  # Ensure the file exists
+  if [[ ! -f $file_path ]]; then
+    echo "Error: File '$file_path' does not exist."
+    return 1
+  fi
+
+  # Extract the directory and file name
+  local dir_path
+  local file_name
+  dir_path=$(dirname "$file_path")
+  file_name=$(basename "$file_path")
+
+  # Generate the backup file name with the current timestamp
+  local timestamp
+  local backup_file_path
+  timestamp=$(date +"%Y%m%d_%H%M%S")
+  backup_file_path="${dir_path}/${file_name}_halizard_bkp_${timestamp}"
+
+  # Copy the file to the backup file while preserving attributes and ownership
+  if cp --preserve=all "$file_path" "$backup_file_path"; then
+    # Check if the copy operation was successful
+    echo "Backup created: $backup_file_path"
+  else
+    echo "Error: Failed to create backup."
+    return 2
+  fi
+}
+
 #######################################
 # Description:
 #   Validates whether a given string is a valid IPv4 address.
