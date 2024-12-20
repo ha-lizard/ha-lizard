@@ -1,5 +1,5 @@
 %define version      2.4.4
-%define release      123
+%define release      124
 %define buildarch    noarch
 %define name         ha-lizard
 
@@ -65,6 +65,7 @@ echo "Setting up ha-lizard..."
 # Set executable permissions
 find %{_sysconfdir}/ha-lizard -type f -name "*.sh" -exec chmod +x {} \;
 find %{_sysconfdir}/ha-lizard -type f -name "*.tcl" -exec chmod +x {} \;
+find %{_sysconfdir}/ha-lizard/init -type f -exec chmod +x {} \;
 find %{_sysconfdir}/ha-lizard/scripts -type f -exec chmod +x {} \;
 
 # Add CLI link
