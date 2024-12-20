@@ -120,6 +120,7 @@
     "strftime",
     "subsys",
     "sysconfdir",
+    "sysconfig",
     "sysrq",
     "tagname",
     "tgtd",

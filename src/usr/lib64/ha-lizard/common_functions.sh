@@ -39,6 +39,14 @@
 #     #   Output: Returns 0 if file exists, 1 otherwise.
 # }
 
+###################################
+# Environment and default values
+###################################
+# shellcheck disable=SC2034
+LVM_CONF='/etc/lvm/lvm.conf /etc/lvm/master/lvm.conf'
+DRBD_CONF_FILE='/etc/drbd.d/iscsi-cfg.res'
+IPTABLES_RULES_FILE='/etc/sysconfig/iptables'
+
 # backup_file: Backup a file while preserving its attributes and ownership.
 #
 # Input: file_path - the path to the file to be backed up.
@@ -99,6 +107,7 @@ backup_file() {
 #   - If the host is unreachable, the user is prompted to decide whether to exit or continue.
 #   - If the user chooses "no" or anything other than "yes", the function exits the script with status 1.
 #   - If the user chooses "yes", the function will return 2 to indicate continuation despite the unreachable host.
+# TODO: Merge check_ip_health here
 check_host_reachable() {
   # Host to check is passed as the first argument
   local host_to_check=$1
@@ -205,21 +214,32 @@ function make_box() {
   # Calculate available width for text (subtracting padding and borders)
   local available_width=$((term_width - 4))
 
+  # Function to strip color escape sequences for length calculations
+  strip_colors() {
+    echo "$1" | sed -r 's/\x1B\[[0-9;]*m//g'
+  }
+
   # Split input into individual lines
   IFS=$'\n' # Handle multi-line input correctly
   local lines=()
   while IFS= read -r line; do
-    # Truncate lines that are too long to fit in the available width
-    if [ ${#line} -gt $available_width ]; then
-      line="${line:0:available_width}"
+    # Truncate lines (ignoring color codes) if they are too long
+    local stripped_line
+    stripped_line=$(strip_colors "$line")
+    if [ ${#stripped_line} -gt $available_width ]; then
+      stripped_line="${stripped_line:0:available_width}"
+      # Retain color codes for display but truncate visible text
+      line="${line:0:${#stripped_line}}"
     fi
     lines+=("$line")
   done <<<"$input"
 
-  # Calculate the longest line length
+  # Calculate the longest line length (ignoring color codes)
   local longest_line=0
   for line in "${lines[@]}"; do
-    [ ${#line} -gt "$longest_line" ] && longest_line=${#line}
+    local stripped_line=
+    stripped_line=$(strip_colors "$line")
+    [ ${#stripped_line} -gt "$longest_line" ] && longest_line=${#stripped_line}
   done
 
   # Calculate box width and height
@@ -246,8 +266,10 @@ function make_box() {
 
     # Print the lines in the box with padding and side borders
     for ((i = start_line; i < end_line; i++)); do
-      local padding=$((longest_line - ${#lines[i]}))
-      printf "%${offset_x}s| %s%*s |\n" "" "${lines[i]}" $padding ""
+      local stripped_line
+      stripped_line=$(strip_colors "${lines[i]}")
+      local padding=$((longest_line - ${#stripped_line}))
+      printf "%${offset_x}s| %s%*s |\n" "" "${lines[i]}" "$padding" ""
     done
 
     # Print the bottom border
@@ -276,4 +298,60 @@ function make_box() {
     # Move to the next page
     current_page=$((current_page + 1))
   done
+}
+
+# Updates or adds a configuration parameter in the specified configuration file.
+#
+# This function updates the parameter value if the parameter already exists in the
+# configuration file. If the parameter does not exist, it adds the parameter with the
+# specified value to the configuration file.
+#
+# Arguments:
+#   conf_file (string): The path to the configuration file.
+#   param_name (string): The name of the parameter to update or add.
+#   param_value (string): The value to assign to the parameter.
+#
+# Returns:
+#   int: Returns 0 on success, 1 on error.
+#
+# Errors:
+#   - If the configuration file path is null or does not exist, returns an error.
+#   - If the parameter name or value is not provided, returns an error.
+#   - If updating or adding the parameter fails, returns an error.
+update_local_conf() {
+
+  local conf_file="$1"
+  local param_name="$2"
+  local param_value="$3"
+
+  # Check for valid arguments
+  if [[ -z $conf_file ]]; then
+    echo "Error: Configuration file path is null."
+    return 1
+  elif [[ ! -f $conf_file ]]; then
+    echo "Error: Configuration file '$conf_file' does not exist."
+    return 1
+  elif [[ -z $param_name || -z $param_value ]]; then
+    echo "Error: Both parameter name and value must be provided."
+    return 1
+  fi
+
+  # Check if the parameter already exists in the configuration file
+  if grep -q "^$param_name=" "$conf_file"; then
+    echo "Updating parameter '$param_name' in $conf_file"
+    # Replace the parameter value if it already exists
+    if ! sed -i "/^$param_name=/c\\$param_name=\"$param_value\"" "$conf_file"; then
+      echo "Error: Could not update parameter '$param_name' in $conf_file"
+      return 1
+    fi
+  else
+    echo "Adding parameter '$param_name' to $conf_file"
+    # Add the parameter to the configuration file if it does not exist
+    if ! echo "$param_name=\"$param_value\"" >>"$conf_file"; then
+      echo "Error: Could not add parameter '$param_name' to $conf_file"
+      return 1
+    fi
+  fi
+
+  return 0
 }
