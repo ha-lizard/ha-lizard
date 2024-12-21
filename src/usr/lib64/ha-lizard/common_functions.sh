@@ -47,6 +47,19 @@ LVM_CONF='/etc/lvm/lvm.conf /etc/lvm/master/lvm.conf'
 DRBD_CONF_FILE='/etc/drbd.d/iscsi-cfg.res'
 IPTABLES_RULES_FILE='/etc/sysconfig/iptables'
 
+# Define global read-only variables for key and SSH directory paths
+declare -r SSH_AUTHORIZED_KEYS="$SSH_DIR/authorized_keys"
+declare -r SSH_DIR="$HOME/.ssh"
+declare -r SSH_KEY_COMMENT="HA-Lizard_SSH_keys"
+declare -r SSH_KEY_NAME="ha-lizard"
+declare -r SSH_KEY_TYPE="ed25519"
+declare -r SSH_KNOW_HOSTS="$SSH_DIR/known_hosts"
+declare -r SSH_PRIVATE_KEY="$SSH_DIR/$SSH_KEY_NAME"
+declare -r SSH_PUBLIC_KEY="$SSH_PRIVATE_KEY.pub"
+# Define global read-only SSH options (private key and timeout)
+declare -r -a SSH_OPTIONS=(-i "$SSH_PRIVATE_KEY" -o ConnectTimeout=5)
+# NOTE: recent versions of ssh has the option "StrictHostKeyChecking=accept-new" that we could use to replace the logic of the known_hosts file.
+
 # backup_file: Backup a file while preserving its attributes and ownership.
 #
 # Input: file_path - the path to the file to be backed up.
@@ -298,6 +311,176 @@ function make_box() {
     # Move to the next page
     current_page=$((current_page + 1))
   done
+}
+
+############################################
+#
+# SSH Key management functions
+#
+############################################
+
+# Function: ssh_keys_create
+# Purpose: Create or recreate SSH keys for HA-Lizard and configure authorized_keys
+# Parameters:
+#   None
+# Returns:
+#   0 on success, 1 on failure
+ssh_keys_create() {
+
+  # Ensure .ssh directory exists
+  if [[ ! -d $SSH_DIR ]]; then
+    # Create the .ssh directory if it does not exist
+    mkdir -p "$SSH_DIR"
+    chmod 700 "$SSH_DIR"
+  fi
+
+  # Check if SSH keys already exist
+  if [[ -f $SSH_PRIVATE_KEY && -f $SSH_PUBLIC_KEY ]]; then
+    # Check if the user wants to use existing SSH keys
+    read -rp "Keys already exist. Use existing SSH keys? (y/n): " response
+    case "$response" in
+    [Yy]*)
+      # Use existing SSH keys
+      echo "Using existing SSH keys."
+      return 0
+      ;;
+    [Nn]*)
+      # Recreate the SSH keys
+      echo "Recreating SSH keys."
+      rm -f "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY"
+      ;;
+    *)
+      # Invalid response
+      echo "Invalid response. Exiting."
+      return 1
+      ;;
+    esac
+  fi
+
+  # Generate new key pair
+  if ! ssh-keygen -t "$SSH_KEY_TYPE" -C "$SSH_KEY_COMMENT" -f "$SSH_PRIVATE_KEY" -N ""; then
+    # Error generating SSH keys
+    echo "Error generating SSH keys."
+    return 1
+  fi
+
+  # Add public key to authorized_keys
+  if [[ -f $SSH_AUTHORIZED_KEYS ]]; then
+    # Check if the public key is already in authorized_keys; if not, append it.
+    grep -qFf "$SSH_PUBLIC_KEY" "$SSH_AUTHORIZED_KEYS" || cat "$SSH_PUBLIC_KEY" >>"$SSH_AUTHORIZED_KEYS"
+  else
+    # Create authorized_keys and add the public key
+    cat "$SSH_PUBLIC_KEY" >>"$SSH_AUTHORIZED_KEYS"
+    chmod 600 "$SSH_AUTHORIZED_KEYS"
+  fi
+
+  # Success
+  echo "SSH Keys created and added to authorized_keys."
+}
+
+# Function: ssh_keys_sync
+# Purpose: Synchronize SSH keys and configuration with a remote server
+# Parameters:
+#   server_ip_master - The hostname or IP address of the master server
+#   server_ip_slave - The hostname or IP address of the slave server
+# Returns:
+#   0 on success, 1 on failure
+
+ssh_keys_sync() {
+  local server_ip_master="$1"
+  local server_ip_slave="$2"
+
+  # Check if both master and slave server IPs are provided
+  if [[ -z $server_ip_master || -z $server_ip_slave ]]; then
+    echo "Usage: ssh_keys_sync <server_ip_master> <server_ip_slave>"
+    return 1
+  fi
+
+  # Check if SSH keys exist
+  if [[ ! -f $SSH_PRIVATE_KEY || ! -f $SSH_PUBLIC_KEY ]]; then
+    echo "Keys do not exist. Run ssh_keys_create first."
+    return 1
+  fi
+
+  # Generate known_hosts for the master server
+  if ! ssh-keyscan -H "$server_ip_master" >>"$SSH_KNOW_HOSTS"; then
+    echo "Error generating known_hosts for $server_ip_master."
+    return 1
+  fi
+
+  # Append the slave server to known_hosts
+  if ! ssh-keyscan -H "$server_ip_slave" >>"$SSH_KNOW_HOSTS"; then
+    echo "Error generating known_hosts for $server_ip_slave."
+    return 1
+  fi
+
+  # Synchronize files to the slave server using the specified private key
+  if ! rsync -avz -e "ssh ${SSH_OPTIONS[*]}" "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY" "$SSH_AUTHORIZED_KEYS" "$SSH_KNOW_HOSTS" "$server_ip_slave:$SSH_DIR/"; then
+    echo "Error synchronizing SSH keys and configuration with $server_ip_slave."
+    return 1
+  fi
+
+  # Successful synchronization
+  echo "Keys and configuration synchronized with $server_ip_slave."
+}
+
+# Function: ssh_keys_remove
+# Purpose: Remove all HA-Lizard SSH keys and revert changes
+# Parameters:
+#   server_ip_slave - The hostname or IP address of the slave server
+# Returns:
+#   0 on success, 1 on failure
+ssh_keys_remove() {
+  local server_ip_slave="$1"
+  local retval=0
+  local remote_success=0
+  local local_success=0
+
+  if [[ -z $server_ip_slave ]]; then
+    echo "Usage: ssh_keys_remove <server_ip_slave>"
+    return 1
+  fi
+
+  # Revert changes on remote server
+  if ssh "${SSH_OPTIONS[@]}" "$server_ip_slave" bash -c '
+    if [[ -f ~/.ssh/authorized_keys ]]; then
+      sed -i "/HA-Lizard_SSH_keys/d" ~/.ssh/authorized_keys
+    fi
+    rm -f ~/.ssh/ha-lizard ~/.ssh/ha-lizard.pub ~/.ssh/known_hosts
+  '; then
+    echo "Keys removed from remote server."
+    remote_success=1
+  else
+    echo "Error: Failed to connect to remote server or execute commands."
+    retval=2
+  fi
+
+  # Remove SSH keys from authorized_keys locally
+  if [[ -f $SSH_AUTHORIZED_KEYS ]]; then
+    if ! sed -i "/HA-Lizard_SSH_keys/d" "$SSH_AUTHORIZED_KEYS"; then
+      echo "Error: Failed to remove SSH keys from local authorized_keys."
+      retval=2
+    fi
+  fi
+
+  # Remove local SSH keys and known_hosts entries
+  if rm -f "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY" "$SSH_KNOW_HOSTS"; then
+    local_success=1
+  else
+    echo "Error: Failed to remove local SSH keys or known_hosts."
+    retval=1
+  fi
+
+  # Print success or partial success message
+  if [[ $remote_success -eq 1 && $local_success -eq 1 ]]; then
+    echo "Keys and configuration removed from local server and $server_ip_slave."
+  elif [[ $local_success -eq 1 ]]; then
+    echo "Keys and configuration were successfully removed locally, but there was an issue removing them from $server_ip_slave."
+  elif [[ $remote_success -eq 1 ]]; then
+    echo "Keys and configuration were successfully removed from $server_ip_slave, but there was an issue removing them locally."
+  fi
+
+  return $retval
 }
 
 # Updates or adds a configuration parameter in the specified configuration file.
