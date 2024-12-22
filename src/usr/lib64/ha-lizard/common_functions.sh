@@ -314,6 +314,41 @@ function make_box() {
   done
 }
 
+# Description:
+#   Sets the terminal text color based on the specified color name.
+#
+# Parameters:
+#   $1: The name of the color to set. Valid options are:
+#       - green: Sets the text color to green.
+#       - red: Sets the text color to red.
+#       - yellow: Sets the text color to yellow.
+#       - normal: Resets the text color to the default.
+#
+# Edge cases:
+#   - If an invalid color name is provided, an error message is printed.
+function set_color() {
+  # Check if a color was specified
+
+  # Change the terminal text color based on the input
+  case $1 in
+  green)
+    echo -e -n "\E[32m" # Set text color to green
+    ;;
+  red)
+    echo -e -n "\E[31m" # Set text color to red
+    ;;
+  yellow)
+    echo -e -n "\E[33m" # Set text color to yellow
+    ;;
+  normal)
+    echo -e -n '\E[0m' # Reset text color to default
+    ;;
+  *)
+    echo "Invalid color" # Handle invalid color input
+    ;;
+  esac
+}
+
 ############################################
 #
 # SSH Key management functions
