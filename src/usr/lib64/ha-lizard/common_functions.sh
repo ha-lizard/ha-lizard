@@ -43,9 +43,12 @@
 # Environment and default values
 ###################################
 # shellcheck disable=SC2034
-LVM_CONF='/etc/lvm/lvm.conf /etc/lvm/master/lvm.conf'
-DRBD_CONF_FILE='/etc/drbd.d/iscsi-cfg.res'
-IPTABLES_RULES_FILE='/etc/sysconfig/iptables'
+declare -r LVM_CONF='/etc/lvm/lvm.conf /etc/lvm/master/lvm.conf'
+declare -r DRBD_CONF_FILE='/etc/drbd.d/iscsi-cfg.res'
+declare -r IPTABLES_RULES_FILE='/etc/sysconfig/iptables'
+
+declare BACKUP_SUFFIX
+BACKUP_SUFFIX="_halizard_bkp_$(date +"%Y%m%d_%H%M%S")"
 
 # Define global read-only variables for key and SSH directory paths
 declare -r SSH_AUTHORIZED_KEYS="$SSH_DIR/authorized_keys"
@@ -90,11 +93,9 @@ backup_file() {
   dir_path=$(dirname "$file_path")
   file_name=$(basename "$file_path")
 
-  # Generate the backup file name with the current timestamp
-  local timestamp
+  # Generate the backup file name with the current backup suffix
   local backup_file_path
-  timestamp=$(date +"%Y%m%d_%H%M%S")
-  backup_file_path="${dir_path}/${file_name}_halizard_bkp_${timestamp}"
+  backup_file_path="${dir_path}/${file_name}${BACKUP_SUFFIX}"
 
   # Copy the file to the backup file while preserving attributes and ownership
   if cp --preserve=all "$file_path" "$backup_file_path"; then
@@ -381,18 +382,18 @@ ssh_keys_create() {
 # Function: ssh_keys_sync
 # Purpose: Synchronize SSH keys and configuration with a remote server
 # Parameters:
-#   server_ip_master - The hostname or IP address of the master server
-#   server_ip_slave - The hostname or IP address of the slave server
+#   server_ip_local - The hostname or IP address of the master server
+#   server_ip_remote - The hostname or IP address of the slave server
 # Returns:
 #   0 on success, 1 on failure
 
 ssh_keys_sync() {
-  local server_ip_master="$1"
-  local server_ip_slave="$2"
+  local server_ip_local="$1"
+  local server_ip_remote="$2"
 
   # Check if both master and slave server IPs are provided
-  if [[ -z $server_ip_master || -z $server_ip_slave ]]; then
-    echo "Usage: ssh_keys_sync <server_ip_master> <server_ip_slave>"
+  if [[ -z $server_ip_local || -z $server_ip_remote ]]; then
+    echo "Usage: ssh_keys_sync <server_ip_local> <server_ip_remote>"
     return 1
   fi
 
@@ -403,46 +404,46 @@ ssh_keys_sync() {
   fi
 
   # Generate known_hosts for the master server
-  if ! ssh-keyscan -H "$server_ip_master" >>"$SSH_KNOW_HOSTS"; then
-    echo "Error generating known_hosts for $server_ip_master."
+  if ! ssh-keyscan -H "$server_ip_local" >>"$SSH_KNOW_HOSTS"; then
+    echo "Error generating known_hosts for $server_ip_local."
     return 1
   fi
 
   # Append the slave server to known_hosts
-  if ! ssh-keyscan -H "$server_ip_slave" >>"$SSH_KNOW_HOSTS"; then
-    echo "Error generating known_hosts for $server_ip_slave."
+  if ! ssh-keyscan -H "$server_ip_remote" >>"$SSH_KNOW_HOSTS"; then
+    echo "Error generating known_hosts for $server_ip_remote."
     return 1
   fi
 
   # Synchronize files to the slave server using the specified private key
-  if ! rsync -avz -e "ssh ${SSH_OPTIONS[*]}" "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY" "$SSH_AUTHORIZED_KEYS" "$SSH_KNOW_HOSTS" "$server_ip_slave:$SSH_DIR/"; then
-    echo "Error synchronizing SSH keys and configuration with $server_ip_slave."
+  if ! rsync -avz --backup --suffix="${BACKUP_SUFFIX}" -e "ssh ${SSH_OPTIONS[*]}" "$SSH_PRIVATE_KEY" "$SSH_PUBLIC_KEY" "$SSH_AUTHORIZED_KEYS" "$SSH_KNOW_HOSTS" "$server_ip_remote:$SSH_DIR/"; then
+    echo "Error synchronizing SSH keys and configuration with $server_ip_remote."
     return 1
   fi
 
   # Successful synchronization
-  echo "Keys and configuration synchronized with $server_ip_slave."
+  echo "Keys and configuration synchronized with $server_ip_remote."
 }
 
 # Function: ssh_keys_remove
 # Purpose: Remove all HA-Lizard SSH keys and revert changes
 # Parameters:
-#   server_ip_slave - The hostname or IP address of the slave server
+#   server_ip_remote - The hostname or IP address of the slave server
 # Returns:
 #   0 on success, 1 on failure
 ssh_keys_remove() {
-  local server_ip_slave="$1"
+  local server_ip_remote="$1"
   local retval=0
   local remote_success=0
   local local_success=0
 
-  if [[ -z $server_ip_slave ]]; then
-    echo "Usage: ssh_keys_remove <server_ip_slave>"
+  if [[ -z $server_ip_remote ]]; then
+    echo "Usage: ssh_keys_remove <server_ip_remote>"
     return 1
   fi
 
   # Revert changes on remote server
-  if ssh "${SSH_OPTIONS[@]}" "$server_ip_slave" bash -c '
+  if ssh "${SSH_OPTIONS[@]}" "$server_ip_remote" bash -c '
     if [[ -f ~/.ssh/authorized_keys ]]; then
       sed -i "/HA-Lizard_SSH_keys/d" ~/.ssh/authorized_keys
     fi
@@ -473,14 +474,51 @@ ssh_keys_remove() {
 
   # Print success or partial success message
   if [[ $remote_success -eq 1 && $local_success -eq 1 ]]; then
-    echo "Keys and configuration removed from local server and $server_ip_slave."
+    echo "Keys and configuration removed from local server and $server_ip_remote."
   elif [[ $local_success -eq 1 ]]; then
-    echo "Keys and configuration were successfully removed locally, but there was an issue removing them from $server_ip_slave."
+    echo "Keys and configuration were successfully removed locally, but there was an issue removing them from $server_ip_remote."
   elif [[ $remote_success -eq 1 ]]; then
-    echo "Keys and configuration were successfully removed from $server_ip_slave, but there was an issue removing them locally."
+    echo "Keys and configuration were successfully removed from $server_ip_remote, but there was an issue removing them locally."
   fi
 
   return $retval
+}
+
+# File Synchronization Function
+# Synchronize local files with a remote server using rsync and SSH.
+# Parameters:
+#   server_ip_remote - The hostname or IP address of the remote server.
+#   file_list - A space-separated list of files or directories to synchronize.
+# Returns:
+#   0 on success, 1 on failure, 2 if parameters are missing or invalid.
+sync_files() {
+  local server_ip_remote="$1" # Remote server's IP or hostname.
+  shift                       # Remove the first argument (server_ip_remote) from the list.
+  local file_list=("$@")      # Remaining arguments are treated as files to sync.
+
+  # Check if the server IP and file list are provided.
+  if [[ -z $server_ip_remote || ${#file_list[@]} -eq 0 ]]; then
+    echo "Usage: sync_files <server_ip_remote> <file1> [file2 ... fileN]"
+    return 2
+  fi
+
+  # Ensure SSH keys exist before proceeding.
+  if [[ ! -f $SSH_PRIVATE_KEY || ! -f $SSH_PUBLIC_KEY ]]; then
+    echo "SSH keys are missing. Run ssh_keys_create to generate them."
+    return 1
+  fi
+
+  # Use rsync to synchronize the specified files or directories with the remote server.
+  # The --relative option is used to preserve the directory structure, and --backup
+  # is used to create backups of the files with the specified suffix.
+  if ! rsync -avz --relative --backup --suffix="${BACKUP_SUFFIX}" -e "ssh ${SSH_OPTIONS[*]}" "${file_list[@]}" "$server_ip_remote:/"; then
+    echo "Error synchronizing files with remote server $server_ip_remote."
+    return 1
+  fi
+
+  # Successful synchronization.
+  echo "Files synchronized successfully with remote server $server_ip_remote."
+  return 0
 }
 
 # Updates or adds a configuration parameter in the specified configuration file.
