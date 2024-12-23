@@ -214,7 +214,7 @@ is_valid_ipv4() {
 #   - If the input text is too long, it is split into multiple pages.
 #   - If the terminal is not a TTY, the box is not printed.
 #######################################
-function make_box() {
+make_box() {
   local input="$*"     # Capture input text as a single string
   local term_width=80  # Default terminal width
   local term_height=24 # Default terminal height
@@ -326,7 +326,7 @@ function make_box() {
 #
 # Edge cases:
 #   - If an invalid color name is provided, an error message is printed.
-function set_color() {
+set_color() {
   # Check if a color was specified
 
   # Change the terminal text color based on the input
@@ -585,8 +585,8 @@ update_local_conf() {
     echo "Error: Configuration file path is null."
     return 1
   elif [[ ! -f $conf_file ]]; then
-    echo "Error: Configuration file '$conf_file' does not exist."
-    return 1
+    echo "Creating configuration file '$conf_file'."
+    touch "$conf_file"
   elif [[ -z $param_name || -z $param_value ]]; then
     echo "Error: Both parameter name and value must be provided."
     return 1
@@ -594,19 +594,11 @@ update_local_conf() {
 
   # Check if the parameter already exists in the configuration file
   if grep -q "^$param_name=" "$conf_file"; then
-    echo "Updating parameter '$param_name' in $conf_file"
     # Replace the parameter value if it already exists
-    if ! sed -i "/^$param_name=/c\\$param_name=\"$param_value\"" "$conf_file"; then
-      echo "Error: Could not update parameter '$param_name' in $conf_file"
-      return 1
-    fi
+    sed -i "/^$param_name=/c\\$param_name=\"$param_value\"" "$conf_file" || return 1
   else
-    echo "Adding parameter '$param_name' to $conf_file"
     # Add the parameter to the configuration file if it does not exist
-    if ! echo "$param_name=\"$param_value\"" >>"$conf_file"; then
-      echo "Error: Could not add parameter '$param_name' to $conf_file"
-      return 1
-    fi
+    echo "$param_name=\"$param_value\"" >>"$conf_file" || return 1
   fi
 
   return 0
