@@ -71,8 +71,12 @@ start_watchdog() {
     done <"${PID_FILE}" # Redirect PID_FILE to the while loop
   fi
 
-  # Start the watchdog process
-  if check_process_status; then
+  # Start the check_process_status function in the background
+  check_process_status &
+  local bg_pid=$?
+
+  # Check if the background process was started successfully
+  if [[ $bg_pid -eq 0 ]]; then
     touch "${LOCK_FILE}"
     touch "${PID_FILE}"
     pidof -x "${PROC_NAME}" >"${PID_FILE}"
@@ -87,7 +91,6 @@ start_watchdog() {
   fi
   echo
 }
-
 #########################################
 # Description: Stop the watchdog process.
 #########################################
