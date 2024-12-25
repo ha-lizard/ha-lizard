@@ -31,7 +31,7 @@ TIMEOUT=false
 #########################
 if [[ $(cat /etc/xensource/pool.conf) == slave* ]]; then
   # TODO: change timeout for built-in timeout
-  if [ "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
+  if [ -n "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" ]; then
     #########################################
     ## Lets display status if we can
     #########################################
@@ -47,7 +47,7 @@ fi
 ##########################
 if [[ "$3" = "timeout" || "$2" = "timeout" ]]; then
   # TODO: change timeout for built-in timeout
-  if [ "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
+  if [ -n "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" ]; then
     exit 124
   fi
 elif [ ${TIMEOUT} = "false" ]; then
@@ -126,28 +126,44 @@ function validate_ip() {
 # PARAM_LIST() without displaying
 #################################
 function get() {
-  LIST=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config --minimal | tr -d '[:space:]')
-  DEF_IFS=$IFS
-  IFS="; "
-  PARAM_LIST=()
-  for i in "${LIST[@]}"; do
-    if [[ $i = $PREFIX* ]]; then
-      i=${i/$PREFIX/}
-      i=${i/:/=}
-      PARAM_LIST+=("$i")
-      echo "$i" >>./params.tmp
+  # Retrieve the list of parameters, removing whitespace
+  local -r raw_param_list=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config --minimal | tr -d '[:space:]')
+
+  # Save the original IFS and update it for splitting by semicolon
+  local original_ifs="$IFS"
+  IFS=';'
+
+  # Initialize an array for processed parameters
+  local param_array=()
+  local -r temp_file=$(mktemp -t ha-lizard.XXXXXX)
+
+  # Loop through each parameter in the list
+  for param in $raw_param_list; do
+    # Process parameters starting with the prefix "HA_"
+    if [[ "$param" == $PREFIX* ]]; then
+      # Remove the prefix and replace ':' with '='
+      param="${param/$PREFIX/}"
+      param="${param/:/=}"
+      param_array+=("$param")
+
+      # Write the processed parameter to a temporary file
+      echo "$param" >>"$temp_file"
     fi
   done
 
-  if [ "$1" != "--silent" ] && [ "$1" != "-l" ]; then
-    sort <./params.tmp | column
-  elif [ "$1" = "-l" ]; then
-    sort <./params.tmp
+  # Display or sort parameters based on the input flag
+  if [[ "$1" != "--silent" && "$1" != "-l" ]]; then
+    sort <"$temp_file" | column
+  elif [[ "$1" == "-l" ]]; then
+    sort <"$temp_file"
   fi
 
-  IFS=$DEF_IFS
-  rm -f ./params.tmp
-} #End function get
+  # Restore the original IFS
+  IFS="$original_ifs"
+
+  # Clean up the temporary file
+  rm -f "$temp_file"
+}
 
 ##################################
 # Function set sets the specified
@@ -671,7 +687,7 @@ function status() {
   local MY_ROLE
   MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
 
-  service_execute "${PROG_NAME} status" &>/dev/null
+  service_execute "${PROG_NAME}" "status" &>/dev/null
   local SERVICE_STATUS_RESULT=$?
   case $SERVICE_STATUS_RESULT in
   0)
@@ -688,7 +704,7 @@ function status() {
     ;;
   esac
 
-  service_execute "${PROG_NAME}-watchdog status" &>/dev/null
+  service_execute "${PROG_NAME}-watchdog" "status" &>/dev/null
   local WATCHDOG_STATUS_RESULT=$?
   case $WATCHDOG_STATUS_RESULT in
   0)
@@ -856,7 +872,7 @@ function cluster_status() {
   local MY_ROLE
   MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
 
-  service_execute "${PROG_NAME}" status &>/dev/null
+  service_execute "${PROG_NAME}" "status" &>/dev/null
   local SERVICE_STATUS_RESULT=$?
   local HA_SERVICE_STATUS
   case $SERVICE_STATUS_RESULT in
@@ -890,7 +906,7 @@ function cluster_status() {
     ;;
   esac
 
-  service_execute "${PROG_NAME}"-watchdog status &>/dev/null
+  service_execute "${PROG_NAME}-watchdog" "status" &>/dev/null
   local WATCHDOG_STATUS_RESULT=$?
   local HA_WATCHDOG_STATUS
   case $WATCHDOG_STATUS_RESULT in
@@ -1298,69 +1314,6 @@ function yellow() {
 function normal() {
   echo -e -n '\E[0m'
 }
-
-function make_box() {
-  local STRING="$*"
-  local CHAR_HORIZONTAL="-"
-  local CHAR_VERTICAL="|"
-  local NUM_ROWS
-  NUM_ROWS=$(echo "$*" | wc -l)
-
-  if [ "$NUM_ROWS" -eq 1 ]; then
-    local STRING_LEN=${#STRING}
-  else
-    #Find the length of the longest line
-    local LENGTH=0
-    RESTORE_IFS=$IFS
-    IFS=$'\n'
-    for line in "${STRING[@]}"; do
-      local NEW_LENGTH=${#line}
-      if [ "$NEW_LENGTH" -gt "$LENGTH" ]; then
-        LENGTH=$NEW_LENGTH
-      fi
-    done
-
-    IFS=$RESTORE_IFS
-    local STRING_LEN=$LENGTH
-  fi
-
-  local HORIZ_LEN=$((STRING_LEN + 4))
-
-  #create the top border
-  local COUNT=0
-  while [ $COUNT -lt $HORIZ_LEN ]; do
-    echo -n "$CHAR_HORIZONTAL"
-    COUNT=$((COUNT + 1))
-  done
-  echo
-
-  #create the rows
-  if [ "$NUM_ROWS" -eq 1 ]; then
-    echo "$CHAR_VERTICAL $* $CHAR_VERTICAL"
-  elif [ "$NUM_ROWS" -gt 1 ]; then
-    RESTORE_IFS=$IFS
-    IFS=$'\n'
-    for line in "${STRING[@]}"; do
-      NUM_SPACES=$((HORIZ_LEN - ${#line} - 4))
-      COUNT=0
-      SPACE=" "
-      while [ $NUM_SPACES -gt $COUNT ]; do
-        SPACE="$SPACE "
-        COUNT=$((COUNT + 1))
-      done
-      printf "%s\n" "$CHAR_VERTICAL $line$SPACE$CHAR_VERTICAL"
-    done
-    IFS=$RESTORE_IFS
-  fi
-
-  #create the bottom border
-  COUNT=0
-  while [ $COUNT -lt $HORIZ_LEN ]; do
-    echo -n "$CHAR_HORIZONTAL"
-    COUNT=$((COUNT + 1))
-  done
-  echo
-} #End function make_box
 
 if [ ${TIMEOUT} = "true" ]; then
   status
