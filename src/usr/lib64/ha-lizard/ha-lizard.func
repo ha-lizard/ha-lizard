@@ -1105,10 +1105,10 @@ function write_pool_state() {
   # contents per line:
   # uuid:name-label:power-state
   #####################################
-  local HOSTS
-  HOSTS=$($XE host-list --minimal | tr "," "\n")
-  if [ ${#HOSTS[*]} -gt 0 ]; then
-    for h in "${HOSTS[@]}"; do
+  local hosts
+  hosts=$($XE host-list --minimal | tr "," "\n")
+  if [[ ${#hosts[*]} -gt 0 ]]; then
+    for h in "${hosts[@]}"; do
       log "$FUNCNAME" "Calling function get_vms_on_host for UUID: $h"
       get_vms_on_host "$h"
 

@@ -489,8 +489,10 @@ function vm_ha_status() {
   local VM_LIST_NO_CNTRL_DOM
   VM_LIST_NO_CNTRL_DOM=$(xe vm-list is-a-snapshot=false is-control-domain=false --minimal | tr ',' '\n')
 
+  local -r temp_file=$(mktemp -t ha-lizard.XXXXXX)
+
   # Iterate through each VM UUID
-  for i in "${VM_LIST_NO_CNTRL_DOM[@]}"; do
+  for i in $VM_LIST_NO_CNTRL_DOM; do
     # Fetch the HA status for the VM
     local STATUS
     if ! STATUS=$(xe vm-param-get uuid="$i" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME"); then
@@ -502,7 +504,7 @@ function vm_ha_status() {
     NAME=$(xe vm-param-get uuid="$i" param-name=name-label)
 
     # Write the VM status to tempfile
-    echo -e "$STATUS\t$i\t$NAME" >>./tempfile
+    echo -e "$STATUS\t$i\t$NAME" >>"$temp_file"
   done
 
   # Fetch global pool configuration and OP_MODE
@@ -549,8 +551,8 @@ function vm_ha_status() {
   fi
 
   echo
-  column -ts $'\t' <./tempfile
-  rm -f ./tempfile
+  column -ts $'\t' <"$temp_file"
+  rm -f "$temp_file"
 } # End function vm_ha_status
 ######################################
 # Function set-vm-ha
