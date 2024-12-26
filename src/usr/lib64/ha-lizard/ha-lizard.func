@@ -383,10 +383,10 @@ function get_pool_host_list() {
   if [ "$1" = "enabled" ]; then
     log "$FUNCNAME" "enabled flag set - returning only hosts with enabled=true"
     #HOST_LIST_UUID=$($XE host-list enabled=true | grep -e uuid  | awk -F ": " '{print $2}')
-    HOST_LIST_UUID=$($XE host-list enabled=true --minimal | tr "," "\n")
+    mapfile -t HOST_LIST_UUID < <($XE host-list enabled=true --minimal | tr "," "\n")
   else
     #HOST_LIST_UUID=$($XE host-list | grep -e uuid  | awk -F ": " '{print $2}')
-    HOST_LIST_UUID=$($XE host-list --minimal | tr "," "\n")
+    mapfile -t HOST_LIST_UUID < <($XE host-list enabled=true --minimal | tr "," "\n")
   fi
 
   if [ -z "$HOST_LIST_UUID" ]; then
@@ -618,7 +618,7 @@ function vm_mon() {
     # created for a backup
     ###############################
     local POOL_VM_LIST
-    POOL_VM_LIST=$($XE vm-list is-control-domain=false is-a-snapshot=false --minimal | tr ',' '\n')
+    mapfile -t POOL_VM_LIST < <($XE vm-list is-control-domain=false is-a-snapshot=false --minimal | tr "," "\n")
     log "$FUNCNAME" "Retrieved list of VMs for this poll: ${POOL_VM_LIST[*]}"
     log "$FUNCNAME" "Removing Control Domains from VM list"
     VM_LIST_NO_CNTRL_DOM=$POOL_VM_LIST
@@ -1040,7 +1040,7 @@ function get_vms_on_host_local() {
 ##########################################
 function check_vm_managed() {
   local VAPP_LIST
-  VAPP_LIST=$($XE appliance-list --minimal | tr "," "\n")
+  mapfile -t VAPP_LIST < <($XE appliance-list --minimal | tr "," "\n")
   local VAPP_COUNT
   VAPP_COUNT=${#VAPP_LIST[@]}
   log "$FUNCNAME" "$VAPP_COUNT vapps found: ${VAPP_LIST[*]}"
@@ -1106,7 +1106,7 @@ function write_pool_state() {
   # uuid:name-label:power-state
   #####################################
   local hosts
-  hosts=$($XE host-list --minimal | tr "," "\n")
+  mapfile -t hosts < <($XE host-list --minimal | tr "," "\n")
   if [[ ${#hosts[*]} -gt 0 ]]; then
     for h in "${hosts[@]}"; do
       log "$FUNCNAME" "Calling function get_vms_on_host for UUID: $h"
@@ -1199,7 +1199,7 @@ function write_pool_state() {
   # as UUID:IP:<MASTER|SLAVE>
   ##############################################
   local LIST_ALL_HOST_UUID
-  LIST_ALL_HOST_UUID=$($XE host-list --minimal | tr ',' '\n')
+  mapfile -t LIST_ALL_HOST_UUID < <($XE host-list --minimal | tr "," "\n")
   POOL_MEMBER_LIST=""
   for host_to_describe in "${LIST_ALL_HOST_UUID[@]}"; do
     local THIS_UUID_IP
@@ -1775,7 +1775,7 @@ function fence_host() {
 ##############################################
 function autoselect_slave() {
   local THIS_HOST_UUID
-  THIS_HOST_UUID=$($XE host-list hostname="$HOSTNAME" --minimal)
+  mapfile -t THIS_HOST_UUID < <($XE host-list hostname="$HOSTNAME" --minimal | tr "," "\n")
   if [ "$THIS_HOST_UUID" ]; then
     log "$FUNCNAME" "This host UUID found: $THIS_HOST_UUID"
   else
@@ -1793,8 +1793,7 @@ function autoselect_slave() {
   fi
 
   local SORTED_HOST_LIST
-  SORTED_HOST_LIST=$($XE host-list | grep uuid | awk -F ": " '{print $2}' | sort)
-
+  mapfile -t SORTED_HOST_LIST < <($XE host-list hostname="$HOSTNAME" --minimal | tr "," "\n" | sort)
   for i in "${SORTED_HOST_LIST[@]}"; do
     if [ "$i" = "$MASTER_HOST_UUID" ]; then
       log "$FUNCNAME" "$i is Master UUID - excluding from list of available slaves"
@@ -2133,7 +2132,7 @@ function disable_ha_lizard() {
 # Returns 1 on error
 ####################################
 function update_global_conf_params() {
-  $CLI_TOOL get timeout >"$GLOBAL_CONF_TMP"
+  $CLI_TOOL get >"$GLOBAL_CONF_TMP"
   if [ $? != "124" ]; then
     $CAT "$GLOBAL_CONF_TMP" >"$GLOBAL_CONF"
     log "$FUNCNAME" "Successfully updated global pool configuration settings in $GLOBAL_CONF."
@@ -2212,7 +2211,7 @@ function stop_vms_on_host() {
   local HOST_UUID=$1
   log "$FUNCNAME" "Stopping all VMs on host [ $HOST_UUID ] "
   local VM_LIST
-  VM_LIST=$(xe vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false | tr ',' '\n')
+  mapfile -t VM_LIST < <($XE vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false | tr "," "\n")
   for vm_uuid in "${VM_LIST[@]}"; do
     local VM_NAME_LABEL
     VM_NAME_LABEL=$(xe vm-param-get uuid="$vm_uuid" param-name=name-label)
@@ -2317,7 +2316,7 @@ function stop_vms_on_host_slow() {
   local HOST_UUID=$1
   log "$FUNCNAME" "Stopping all VMs on host [ $HOST_UUID ] "
   local VM_LIST
-  VM_LIST=$(xe vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false)
+  mapfile -t VM_LIST < <($XE vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false | tr "," "\n")
   OLD_IFS=$IFS
   IFS=','
   local SHUTDOWN_EXEC=""
@@ -2500,7 +2499,7 @@ function write_status_report() {
   STATUS_REPORT+="Pool Master UUID: $POOL_MASTER\n"
 
   local POOL_HOSTS
-  POOL_HOSTS=$(xe host-list --minimal | tr ',' '\n')
+  mapfile -t POOL_HOSTS < <($XE host-list --minimal | tr "," "\n")
   for pool_host in "${POOL_HOSTS[@]}"; do
     local THIS_HOST_NAME_LABEL
     THIS_HOST_NAME_LABEL=$($XE host-param-get uuid="$pool_host" param-name=name-label)
@@ -2539,7 +2538,7 @@ function write_status_report() {
 function validate_vm_ha_state() {
   log "$FUNCNAME" "Validating VM HA-state"
   local VM_LIST
-  VM_LIST=$($XE vm-list is-control-domain=false --minimal | tr ',' '\n')
+  mapfile -t VM_LIST < <($XE vm-list is-control-domain=false --minimal | tr "," "\n")
   for vm_state_to_validate in "${VM_LIST[@]}"; do
     local THIS_VM_STATE
     THIS_VM_STATE=$($XE vm-param-get uuid="$vm_state_to_validate" param-name=other-config param-key=XenCenter.CustomFields."${XC_FIELD_NAME}")
@@ -2587,7 +2586,7 @@ function reset_vm_vdi() {
   #################################
   local SUCCESS=true
   local THIS_VM_VBD_LIST
-  THIS_VM_VBD_LIST=$(xe vbd-list vm-uuid="${THIS_VM_UUID}" --minimal | tr ',' '\n')
+  mapfile -t THIS_VM_VBD_LIST < <($XE vbd-list vm-uuid="${THIS_VM_UUID}" --minimal | tr "," "\n")
   for vbd in "${THIS_VM_VBD_LIST[@]}"; do
     local VDI_UUID
     VDI_UUID=$(xe vbd-param-get uuid="$vbd" param-name=vdi-uuid)
