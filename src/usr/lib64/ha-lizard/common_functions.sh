@@ -349,6 +349,79 @@ set_color() {
   esac
 }
 
+# Description:
+#   Performs actions (start, stop, restart, status) on specified services on a remote server
+#   using SSH and systemctl.
+#
+# Parameters:
+#   $1: The IP address or hostname of the remote server.
+#   $2: The systemctl action to perform (start, stop, restart, status).
+#   $3+: An array of services to be managed.
+#
+# Returns:
+#   0 on success, 1 on failure.
+service_execute_remote() {
+  local server_ip_remote="$1"
+  local action="$2"
+  shift 2
+  local services=("$@")
+  local retval=0
+
+  # Validate input parameters
+  if [[ -z $server_ip_remote || -z $action || ${#services[@]} -eq 0 ]]; then
+    echo "Usage: service_execute_remote <server_ip_remote> <action> <service1> <service2> ..."
+    return 1
+  fi
+
+  # Validate the action parameter
+  if ! [[ $action =~ ^(start|stop|restart|status)$ ]]; then
+    echo "Error: Invalid action. Valid actions are start, stop, restart, status."
+    return 1
+  fi
+
+  echo "Performing '$action' on services for remote server: $server_ip_remote"
+
+  # Iterate over each service and perform the action
+  for service in "${services[@]}"; do
+    echo -n "$action $service: "
+
+    # Perform the action using ssh and capture the status
+    ssh -o BatchMode=yes "$server_ip_remote" "systemctl $action $service" >/dev/null 2>&1
+    # Determine expected service state based on the action
+    local expected_state
+    case "$action" in
+    start | restart | status)
+      expected_state="active"
+      ;;
+    stop)
+      expected_state="inactive"
+      ;;
+    esac
+
+    # Check the service's current state
+    local service_state
+    service_state=$(ssh -o BatchMode=yes "$server_ip_remote" "systemctl is-active $service" 2>/dev/null)
+
+    # Output status based on the command result
+    if [[ $service_state == "$expected_state" ]]; then
+      echo "Service Remote Execution action '$action' for $server_ip_remote $(set_color "green")[ OK ]$(set_color "normal")"
+    else
+      echo "Service Remote Execution action '$action' for $server_ip_remote $(set_color "red")[ FAIL/ERROR ]$(set_color "normal")"
+      retval=1
+    fi
+  done
+
+  # Return the overall status
+  if [[ $retval -eq 0 ]]; then
+    echo "All services were SUCCESSFULLY '$action' on the remote server: $server_ip_remote"
+    return 0
+  else
+    echo "One or more services FAILED to '$action' on the remote server: $server_ip_remote"
+    return 1
+  fi
+
+}
+
 ############################################
 #
 # SSH Key management functions
