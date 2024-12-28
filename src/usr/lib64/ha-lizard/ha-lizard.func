@@ -623,7 +623,7 @@ function vm_mon() {
     # Get the list of VMs for the pool, excluding control domains and snapshots
     ##############################
     local vm_list
-    mapfile -t vm_list < <(xe_vm_list is-control-domain=false is-a-snapshot=false)
+    mapfile -t vm_list < <(xe_vm_list)
     log "$FUNCNAME" "Retrieved list of VMs for this pool: ${vm_list[*]}"
 
     ##############################
@@ -832,7 +832,7 @@ function vm_mon() {
             if [ "$this_host_current_xapi_power_state" = "halted" ]; then
               # Check if the VM is currently running on any host
               local vm_running_on_this_host
-              vm_running_on_this_host=$(xe_vm_list | grep -c "$j")
+              vm_running_on_this_host=$($LIST_DOMAINS | grep -c "$j")
 
               if [ "$vm_running_on_this_host" -gt 0 ]; then
                 log "$FUNCNAME" "VM [ $j ] reported as running but should be halted."
@@ -1039,7 +1039,7 @@ function get_vms_on_host() {
   fi
 
   # Use mapfile to populate the global array with VM UUIDs on the host
-  mapfile -t GET_VMS_ON_HOST < <(xe_vm_list is-control-domain=false resident-on="$1")
+  mapfile -t GET_VMS_ON_HOST < <(xe_vm_list resident-on="$1")
 
   # If no VMs are found, log the message
   if [ ${#GET_VMS_ON_HOST[@]} -eq 0 ]; then
@@ -2290,81 +2290,101 @@ function check_master_mgt_link_state() {
 } # End function check_master_mgt_link_state
 
 ##########################################
-# Function stop_vms_on_host
-# performs a forceful shutdown of all VMs
-# on a specific host. Shutdowns are
-# parallel executed to make the shutdown
-# as rapid as possible
+# Function: stop_vms_on_host
 #
-# Args passed in:
-# arg1=host-UUID
+# Description:
+# This function performs a forceful shutdown of all VMs on a specified host.
+# It retrieves the list of VMs excluding control domains and attempts to destroy
+# each VM's domain. The function utilizes different modes (legacy xenops or XL
+# toolstack) to destroy domains, checks for the power-state, and handles VDI
+# resets and power-state cleanup for paused VMs.
 #
+# Arguments:
+# arg1 - host-UUID: The UUID of the host whose VMs are to be stopped.
+#
+# Behavior:
+# - Retrieves VM UUIDs on the specified host.
+# - Iterates through each VM, retrieves its domain ID, and destroys the domain.
+# - Checks if the domain destruction was successful and resets VDI if needed.
+# - Monitors shutdown tasks, ensuring all VMs are shut down before completing.
+#
+# Returns:
+# Always returns 0 after ensuring all shutdown tasks are completed.
 ##########################################
 function stop_vms_on_host() {
-  local HOST_UUID=$1
-  log "$FUNCNAME" "Stopping all VMs on host [ $HOST_UUID ] "
-  local VM_LIST
-  VM_LIST=$(xe vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false | tr ',' '\n')
-  for vm_uuid in "${VM_LIST[@]}"; do
-    local VM_NAME_LABEL
-    VM_NAME_LABEL=$(xe vm-param-get uuid="$vm_uuid" param-name=name-label)
-    DOMAIN_ID=$($LIST_DOMAINS | grep "$vm_uuid" | awk '{print $1}')
-    for dom_id in "${DOMAIN_ID[@]}"; do
-      log "$FUNCNAME" "Destroying domain [ $dom_id ] VM [ $VM_NAME_LABEL ]"
+  # Host UUID passed as an argument
+  local host_uuid="$1"
+  log "$FUNCNAME" "Stopping all VMs on host [ $host_uuid ]"
+  # Retrieve a list of VM UUIDs resident on the host, excluding control domains
+  local vm_list
+  mapfile -t vm_list < <(xe_vm_list resident-on="$host_uuid")
+
+  # Loop through each VM UUID and perform shutdown
+  for vm_uuid in "${vm_list[@]}"; do
+    # Retrieve the VM's name label
+    local vm_name_label
+    vm_name_label=$(xe_vm_param_get uuid="$vm_uuid" param-name=name-label)
+
+    # Retrieve the domain ID associated with the VM
+    local domain_id
+    domain_id=$($LIST_DOMAINS | grep "$vm_uuid" | awk '{print $1}')
+
+    # Loop through each domain ID and perform necessary actions
+    for dom_id in "${domain_id[@]}"; do
+      log "$FUNCNAME" "Destroying domain [ $dom_id ] for VM [ $vm_name_label ]"
       if [ -e /opt/xensource/debug/xenops ]; then
-        log "$FUNCNAME" "Using legacy xenops mode [ /opt/xensource/debug/xenops destroy_domain -domid ""$dom_id"" ]"
+        log "$FUNCNAME" "Using legacy xenops mode to destroy domain [ $dom_id ]"
         /opt/xensource/debug/xenops destroy_domain -domid "$dom_id"
       else
-        log "$FUNCNAME" "Using XL toolstack mode [ $XL_EXEC destroy $dom_id ]"
+        log "$FUNCNAME" "Using XL toolstack mode to destroy domain [ $XL_EXEC destroy $dom_id ]"
         $XL_EXEC destroy "$dom_id" &>/dev/null
       fi
-
+      # TODO: why we need to run it twice ?
       $LIST_DOMAINS -domid "$dom_id" &>/dev/null
-      DOMAIN_IS_LIVE=$(xe vm-param-get uuid="$vm_uuid" param-name=power-state)
-      log "$FUNCNAME" "Domain [ $dom_id ] [ $VM_NAME_LABEL ] power-state = [ $DOMAIN_IS_LIVE ]"
-      if [ "$DOMAIN_IS_LIVE" != "running" ]; then
-        log "$FUNCNAME" "domain [ $dom_id ] destroyed"
-        ##########################################
-        ## Cleanup after destruction - normalize
-        ## power-state and reset VDI so that
-        ## VM can be cleanly started
-        ##########################################
-        log "$FUNCNAME" "Resetting VDI for VM [ $vm_uuid ] [ $VM_NAME_LABEL ]"
-        reset_vm_vdi "${vm_uuid}"
-        RETVAL=$?
-        if [ $RETVAL -eq 0 ]; then
-          log "$FUNCNAME" "VDI reset success"
+      # Check if the domain is live after the destruction attempt
+      local domain_is_live
+      domain_is_live=$(xe_vm_param_get uuid="$vm_uuid" param-name=power-state)
+      log "$FUNCNAME" "Domain [ $dom_id ] for VM [ $vm_name_label ] power-state = [ $domain_is_live ]"
+
+      if [ "$domain_is_live" != "running" ]; then
+        log "$FUNCNAME" "Domain [ $dom_id ] destroyed successfully."
+
+        # Reset the VM's VDI and handle power-state cleanup if needed
+        log "$FUNCNAME" "Resetting VDI for VM [ $vm_uuid ] [ $vm_name_label ]"
+
+        if reset_vm_vdi "$vm_uuid"; then
+          log "$FUNCNAME" "VDI reset success for VM [ $vm_name_label ]"
         else
-          log "$FUNCNAME" "Error resetting VDI"
+          log "$FUNCNAME" "Error resetting VDI for VM [ $vm_name_label ]"
         fi
 
-        local THIS_VM_POWER_STATE
-        THIS_VM_POWER_STATE=$(xe vm-param-get uuid="$vm_uuid" param-name=power-state)
-        if [ "$THIS_VM_POWER_STATE" = "paused" ]; then
-          log "$FUNCNAME" "Resetting power-state for [ $VM_NAME_LABEL ]"
-          ###########################################
-          ## Clean up sloppy power state left by
-          ## destroying through XL toolstack
-          ###########################################
+        # If VM is paused, reset its power-state
+        local this_vm_power_state
+        this_vm_power_state=$(xe_vm_param_get uuid="$vm_uuid" param-name=power-state)
+
+        if [ "$this_vm_power_state" = "paused" ]; then
+          log "$FUNCNAME" "Resetting power-state for VM [ $vm_name_label ]"
+          # Clean up sloppy power state left by destroying through XL toolstack
           xe vm-reset-powerstate uuid="$vm_uuid" --force
         fi
-
       else
-        log "$FUNCNAME" "Error destroying domain [ $dom_id ] - giving up"
-        SUCCESS=false
+        log "$FUNCNAME" "Error destroying domain [ $dom_id ] for VM [ $vm_name_label ] - giving up"
       fi
 
-      THIS_VM_POWER_STATE=$(xe vm-param-get uuid="$vm_uuid" param-name=power-state)
-      log "$FUNCNAME" "VM [ $vm_uuid ] [ $VM_NAME_LABEL ] power-state = [ $THIS_VM_POWER_STATE ]"
-      if [ "$THIS_VM_POWER_STATE" != "running" ]; then
-        log "$FUNCNAME" "Destroy domain [ $dom_id ] UUID:[ $vm_uuid ] [ $VM_NAME_LABEL ] success"
+      # Final check on the VM's power-state after destruction
+      this_vm_power_state=$(xe_vm_param_get uuid="$vm_uuid" param-name=power-state)
+      log "$FUNCNAME" "VM [ $vm_uuid ] [ $vm_name_label ] power-state after destruction = [ $this_vm_power_state ]"
+
+      if [ "$this_vm_power_state" != "running" ]; then
+        log "$FUNCNAME" "Destroy domain [ $dom_id ] for VM [ $vm_name_label ] successful"
       else
-        log "$FUNCNAME" "Destroy domain [ $dom_id ] UUID:[ $vm_uuid ] [ $VM_NAME_LABEL ] failure"
+        log "$FUNCNAME" "Destroy domain [ $dom_id ] for VM [ $vm_name_label ] failed"
       fi
     done
   done
 
   ##########################
+  ## Monitor shutdown tasks
   ## returned value will
   ## almost always be 0
   ## regardless of success
@@ -2372,54 +2392,83 @@ function stop_vms_on_host() {
   ## return whatever we
   ## get anyway
   ##########################
-  local NUM_TASKS
-  NUM_TASKS=$(xe task-list | grep -c "hard_shutdown")
-  while [ "$NUM_TASKS" -gt 0 ]; do
+  # TODO: very sure that we can list the task-list by names here. but, not need to make a lab and test.
+  local num_tasks
+  num_tasks=$(xe task-list | grep -c "hard_shutdown")
+
+  # Wait for shutdown tasks to complete
+  while [ "$num_tasks" -gt 0 ]; do
     sleep 2
-    NUM_TASKS=$(xe task-list | grep -c "hard_shutdown")
-    if [ "$NUM_TASKS" -gt 0 ]; then
-      log "$FUNCNAME" "[ $NUM_TASKS ] VMs pending shutdown"
+    num_tasks=$(xe task-list | grep -c "hard_shutdown")
+
+    if [ "$num_tasks" -gt 0 ]; then
+      log "$FUNCNAME" "[ $num_tasks ] VMs pending shutdown"
       sleep 1
     else
-      log "$FUNCNAME" "VM shutdown tasks completed - return out"
+      log "$FUNCNAME" "VM shutdown tasks completed."
       break
-      RETVAL=0
     fi
   done
 
-  return "$RETVAL"
-
-} # End function stop_vms_on_host
+  return 0
+}
 
 ##########################################
 # Function stop_vms_on_host_slow
 # !! Does not work if MGT link is down
 # !! use alternate function which
 # !! destroys domain
-# performs a forceful shutdown of all VMs
+# Performs a forceful shutdown of all VMs
 # on a specific host. Shutdowns are
 # parallel executed to make the shutdown
-# as rapid as possible
+# as rapid as possible.
 #
 # Args passed in:
 # arg1=host-UUID
-#
 ##########################################
+# BUG: this looks like are not been used anymore. May we can remove it.
 function stop_vms_on_host_slow() {
-  local HOST_UUID=$1
-  log "$FUNCNAME" "Stopping all VMs on host [ $HOST_UUID ] "
-  local VM_LIST
-  VM_LIST=$(xe vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false)
-  OLD_IFS=$IFS
-  IFS=','
-  local SHUTDOWN_EXEC=""
-  for vm_uuid in "${VM_LIST[@]}"; do
-    SHUTDOWN_EXEC="${SHUTDOWN_EXEC}(xe vm-shutdown uuid=$vm_uuid force=true &);"
-    log "$FUNCNAME" "Shutdown Exec =  [ $SHUTDOWN_EXEC ]"
+  local host_uuid="$1" # Host UUID passed as an argument
+
+  # Check that host_uuid is not null
+  if [ -z "$host_uuid" ]; then
+    log "$FUNCNAME" "Host UUID is null - Aborting"
+    return 1
+  fi
+
+  log "$FUNCNAME" "Stopping all VMs on host [ $host_uuid ]"
+
+  # Retrieve a list of VM UUIDs resident on the host
+  local vm_list
+  mapfile -t vm_list < <(xe_vm_list resident-on="$host_uuid")
+
+  # Check that the list of VMs is not empty
+  if [ ${#vm_list[@]} -eq 0 ]; then
+    log "$FUNCNAME" "No VMs found on host [ $host_uuid ] - Aborting"
+    return 1
+  fi
+
+  # Initialize shutdown execution commands
+  local shutdown_exec=""
+
+  # Loop through each VM UUID and prepare shutdown commands
+  for vm_uuid in "${vm_list[@]}"; do
+    # Check that vm_uuid is not null
+    if [ -z "$vm_uuid" ]; then
+      log "$FUNCNAME" "vm_uuid is null - skipping"
+      continue
+    fi
+
+    shutdown_exec="${shutdown_exec}(xe vm-shutdown uuid=$vm_uuid force=true &);"
+    log "$FUNCNAME" "Shutdown Exec = [ $shutdown_exec ]"
   done
 
-  eval "${SHUTDOWN_EXEC}"
-  RETVAL=$?
+  # Execute the shutdown commands in parallel
+  eval "$shutdown_exec"
+
+  # Capture the return value of the shutdown execution
+  local retval=$?
+
   ##########################
   ## returned value will
   ## almost always be 0
@@ -2428,10 +2477,9 @@ function stop_vms_on_host_slow() {
   ## return whatever we
   ## get anyway
   ##########################
-  IFS=$OLD_IFS
-  return $RETVAL
 
-} # End function stop_vms_on_host_slow
+  return "$retval"
+}
 
 function service_execute() {
   ######################################################################
