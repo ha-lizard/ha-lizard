@@ -676,3 +676,128 @@ update_local_conf() {
 
   return 0
 }
+
+############################################
+#
+# xe wrapper command functions
+#
+############################################
+
+# Function to execute an xe command and return the output as an array
+# Execute an xe command and return the output as an array.
+#
+# Parameters:
+#   subcommand (string): The xe subcommand to execute (e.g., "vm-list").
+#   additional_args (string): Any additional arguments to pass to the xe command.
+#
+# Returns:
+#   array: The output of the xe command as an array of UUIDs, separated by spaces.
+#
+# Errors:
+#   - If no subcommand is provided, returns an error.
+#   - If the xe command fails, returns an error.
+xe_command() {
+  # The subcommand to execute (e.g., "vm-list")
+  local subcommand="$1"
+  # Remove the subcommand from arguments
+  shift
+
+  # Validate that a subcommand is provided
+  if [[ -z $subcommand ]]; then
+    log "Error: No subcommand provided to xe_command."
+    return 1
+  fi
+
+  # Execute the xe command with the provided arguments
+  local output
+  output=$(xe "$subcommand" "$@" --minimal 2>/dev/null)
+
+  # Check if the command executed successfully
+  if ! output=$(xe "$subcommand" "$@" --minimal 2>/dev/null); then
+    log "Error: Failed to execute 'xe $subcommand'."
+    return 1
+  fi
+
+  # If output is empty, return without error (no UUIDs is valid)
+  if [[ -z $output ]]; then
+    return 0
+  fi
+
+  # Convert comma-separated output into an array using IFS
+  IFS=',' read -ra uuid_array <<<"$output"
+
+  # Return the array as space-separated values
+  echo "${uuid_array[@]}"
+}
+
+# Specific xe wrapper functions for common commands
+#
+# Description:
+#   These functions are wrappers for various `xe` subcommands, making it easier to interact with XenServer.
+#   Each function returns a list of UUIDs or other relevant data, depending on the subcommand.
+#
+# Parameters:
+#   $@: Any additional arguments to pass to the `xe` command.
+#
+# Returns:
+#   Array: The output of the `xe` command as an array of UUIDs, separated by spaces.
+
+# Wrapper for host-list subcommand
+xe_host_list() {
+  xe_command "host-list" "$@"
+}
+
+# Wrapper for host-param-get subcommand
+xe_host_param_get() {
+  xe_command "host-param-get" "$@"
+}
+
+# Wrapper for message-list subcommand
+xe_message_list() {
+  xe_command "message-list" "$@"
+}
+
+# Wrapper for network-list subcommand
+xe_network_list() {
+  xe_command "network-list" "$@"
+}
+
+# Wrapper for pif-list subcommand
+xe_pif_list() {
+  xe_command "pif-list" "$@"
+}
+
+# Wrapper for pool-list subcommand
+xe_pool_list() {
+  xe_command "pool-list" "$@"
+}
+
+# Wrapper for pool-param-get subcommand
+xe_pool_param_get() {
+  xe_command "pool-param-get" "$@"
+}
+
+# Wrapper for vbd-list subcommand
+xe_vbd_list() {
+  xe_command "vbd-list" "$@"
+}
+
+# Wrapper for vdi-list subcommand
+xe_vdi_list() {
+  xe_command "vdi-list" "$@"
+}
+
+# Wrapper for vm-list subcommand
+xe_vm_list() {
+  xe_command "vm-list" "$@"
+}
+
+# Wrapper for pbd-list subcommand
+xe_pbd_list() {
+  xe_command "pbd-list" "$@"
+}
+
+# Wrapper for appliance-list subcommand
+xe_appliance_list() {
+  xe_command "appliance-list" "$@"
+}
