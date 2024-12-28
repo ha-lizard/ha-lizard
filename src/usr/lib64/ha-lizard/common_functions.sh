@@ -870,7 +870,7 @@ xe_vdi_list() {
 
 # Wrapper for vm-list subcommand
 xe_vm_list() {
-  xe_command "vm-list" "$@"
+  xe_command "vm-list" "$@" "is-control-domain=false" "is-a-snapshot=false"
 }
 
 # Wrapper for vm-param-get subcommand
