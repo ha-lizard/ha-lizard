@@ -240,7 +240,7 @@ if [ "$STATE" = "master" ]; then
   ## link tracking
   ###########################
 
-  MASTER_UUID=$($XE host-list hostname="$(hostname)" --minimal)
+  MASTER_UUID=$(xe_host_list hostname="$(hostname)")
   $XE host-param-set uuid="$MASTER_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"="master"
   #####################################
   ## Check MGT link state
@@ -318,8 +318,11 @@ if [ "$STATE" = "master" ]; then
 
   log "This host detected as pool  Master"
 
-  # Use 'grep -c' to directly count matching lines
-  NUM_HOSTS=$($XE host-list | grep -c "uuid ( RO)")
+  # Get the list of host UUIDs using the new xe_host_list function and mapfile
+  mapfile -t host_uuids < <(xe_host_list)
+
+  # Count the number of hosts
+  NUM_HOSTS=${#host_uuids[@]}
 
   # Check if the command succeeded and show the result
   if [ "$NUM_HOSTS" -gt 0 ]; then
