@@ -677,6 +677,20 @@ update_local_conf() {
   return 0
 }
 
+# Function to validate a UUID string format
+# Takes one argument: the UUID to validate
+# Returns 0 if valid, 1 if invalid
+function validate_uuid() {
+  local uuid="$1"
+
+  # Regular expression for UUID format
+  if [[ -n $uuid ]] && [[ $uuid =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]; then
+    return 0 # Valid UUID format
+  else
+    return 1 # Invalid UUID format
+  fi
+}
+
 ############################################
 #
 # xe wrapper command functions
@@ -792,6 +806,11 @@ xe_vm_list() {
   xe_command "vm-list" "$@"
 }
 
+# Wrapper for vm-param-get subcommand
+xe_vm_param_get() {
+  xe_command "vm-param-get" "$@"
+}
+
 # Wrapper for pbd-list subcommand
 xe_pbd_list() {
   xe_command "pbd-list" "$@"
@@ -800,4 +819,31 @@ xe_pbd_list() {
 # Wrapper for appliance-list subcommand
 xe_appliance_list() {
   xe_command "appliance-list" "$@"
+}
+
+# Description:
+#   Gets the master UUID for the specified pool.
+#
+# Use POOL_UUID (string) GLOBAL variables as parameter.
+#
+# Returns:
+#   string: The master UUID for the pool, or an error if the pool UUID is not provided or if the command fails.
+xe_pool_master_uuid() {
+
+  # Validate that the pool UUID is provided
+  if [[ -z $POOL_UUID ]]; then
+    log "Error: No pool UUID provided to xe_pool_master_uuid."
+    return 1
+  fi
+
+  # Get the master UUID for the pool
+  pool_master_uuid=$(xe_pool_param_get uuid="$POOL_UUID" param-name=master)
+  # If we get a result, return it, otherwise return an error
+  if [[ -z $pool_master_uuid ]]; then
+    log "Error: Failed to retrieve the master UUID for pool: $POOL_UUID"
+    return 1
+  fi
+
+  # Return the pool master UUID
+  echo "$pool_master_uuid"
 }
