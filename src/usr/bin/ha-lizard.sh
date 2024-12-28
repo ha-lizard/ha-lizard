@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 #################################################################################################
 #
 # HA-Lizard - Open Source High Availability Framework for Xen Cloud Platform and XenServer
@@ -43,10 +44,9 @@ fi
 # Read in environment, override params
 # and function sources
 #######################################
-# shellcheck source=/dev/null
 source /etc/ha-lizard/ha-lizard.init #override configuration settings for this host - static for this host
-# shellcheck source=/dev/null
 source /usr/lib64/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/common_functions.sh
 
 #######################################
 # Set any args passed in
@@ -596,7 +596,6 @@ if [[ $STATE == slave* ]]; then
                 RETVAL=$?
                 if [ $RETVAL -eq 0 ]; then
                   log "New Master ha_enabled check"
-                  POOL_UUID=$(xe pool-list --minimal)
                   DB_HA_STATE=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
                   if [ "$DB_HA_STATE" = "false" ]; then
                     log "This host just became master - re-enabling HA"

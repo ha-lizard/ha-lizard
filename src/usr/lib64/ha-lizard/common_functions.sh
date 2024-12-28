@@ -63,6 +63,78 @@ declare -r SSH_PUBLIC_KEY="$SSH_PRIVATE_KEY.pub"
 declare -r -a SSH_OPTIONS=(-i "$SSH_PRIVATE_KEY" -o ConnectTimeout=5)
 # NOTE: recent versions of ssh has the option "StrictHostKeyChecking=accept-new" that we could use to replace the logic of the known_hosts file.
 
+##############################################
+# Function: get_pool_uuid
+#
+# Description:
+#   Retrieves the UUID of the pool using the following fallback sequence:
+#   1. XAPI (via $XE pool-list --minimal)
+#   2. A local file (${STATE_PATH}/pool_uuid)
+#
+#   If neither source is successful, the function logs an error and exits.
+#
+# Usage:
+#   POOL_UUID=$(get_pool_uuid)
+#
+# Globals:
+#   POOL_UUID - Global variable to store the pool UUID
+#   STATE_PATH - Path to the directory containing the pool_uuid file
+#
+# Returns:
+#   - Outputs the pool UUID (echo)
+#   - Returns 0 on success, exits with error code 1 on failure
+#
+# Dependencies:
+#   - $XE (CLI for XAPI, assumed to be available in the environment)
+#   - log (logging function, assumed to be defined elsewhere)
+#   - ${STATE_PATH}/pool_uuid (optional file containing the pool UUID)
+##############################################
+function get_pool_uuid() {
+  # Check if the global variable POOL_UUID is already set
+  if [ -n "$POOL_UUID" ]; then
+    echo "$POOL_UUID"
+    return 0
+  fi
+
+  # Attempt to retrieve the pool UUID using XAPI
+  local uuid
+  uuid=$(timeout "${XE_TIMEOUT:-10s}" xe pool-list --minimal 2>/dev/null)
+
+  if [ -n "$uuid" ]; then
+    POOL_UUID=$uuid
+    log "Pool UUID successfully retrieved from XAPI: $POOL_UUID"
+    echo "$POOL_UUID"
+    return 0
+  fi
+
+  # Fallback: Attempt to read the UUID from the local state file
+  local state_file="${STATE_PATH}/pool_uuid"
+  if [ -f "$state_file" ]; then
+    uuid=$(<"$state_file")
+    if [ -n "$uuid" ]; then
+      POOL_UUID=$uuid
+      log "Pool UUID retrieved from state file: $POOL_UUID"
+      echo "$POOL_UUID"
+      return 0
+    else
+      log "Error: State file $state_file exists but is empty."
+    fi
+  else
+    log "State file $state_file does not exist."
+  fi
+
+  # If all methods fail, log an error and exit with status 1
+  log "Error: Could not retrieve pool UUID from XAPI or state file."
+  echo "Error: Could not retrieve pool UUID." >&2
+  exit 1
+}
+
+##############################################
+# Retrieve and store the pool UUID
+# This ensures that POOL_UUID GLOBAL variable is set at the start of the script.
+##############################################
+POOL_UUID=$(get_pool_uuid)
+
 # backup_file: Backup a file while preserving its attributes and ownership.
 #
 # Input: file_path - the path to the file to be backed up.
@@ -779,11 +851,6 @@ xe_network_list() {
 # Wrapper for pif-list subcommand
 xe_pif_list() {
   xe_command "pif-list" "$@"
-}
-
-# Wrapper for pool-list subcommand
-xe_pool_list() {
-  xe_command "pool-list" "$@"
 }
 
 # Wrapper for pool-param-get subcommand

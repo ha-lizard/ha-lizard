@@ -1,12 +1,11 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 exec 2>/dev/null
-# shellcheck source=/dev/null
 source /etc/ha-lizard/ha-lizard.pool.conf #global configuration parameters for all hosts in pool - dynamic for pool
-# shellcheck source=/dev/null
-source /etc/ha-lizard/ha-lizard.init #override configuration settings for this host - static for this host
-# shellcheck source=/dev/null
+source /etc/ha-lizard/ha-lizard.init      #override configuration settings for this host - static for this host
 source /usr/lib64/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/common_functions.sh
 
 #######################
 # Environment VARs
@@ -25,33 +24,32 @@ LOG_EXEC='/usr/libexec/ha-lizard/log'
 TIMEOUT=false
 
 #########################
-# Don't hang around if
-# this is a slave and
-# xe is slow to respond
+# Check if the host is a slave
 #########################
 if [[ $(cat /etc/xensource/pool.conf) == slave* ]]; then
-  # TODO: change timeout for built-in timeout
-  if [ "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
-    #########################################
-    ## Lets display status if we can
-    #########################################
+  # Try to get the pool UUID with a 3-second timeout
+  POOL_UUID=$(timeout 3s xe pool-list --minimal 2>/dev/null)
+
+  # If timeout occurred or command failed, handle accordingly
+  if [ -z "$POOL_UUID" ]; then
     echo "timeout"
     TIMEOUT=true
-    #exit 124
   fi
 fi
 
 ##########################
-# Make sure XE is alive
-# when calling externally
+# Ensure XE is responsive or exit
 ##########################
-if [[ "$3" = "timeout" || "$2" = "timeout" ]]; then
-  # TODO: change timeout for built-in timeout
-  if [ "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" -ne 0 ]; then
+if [[ "$3" == "timeout" || "$2" == "timeout" || "$TIMEOUT" == true ]]; then
+  # Retry fetching the pool UUID with a 3-second timeout
+  POOL_UUID=$(timeout 3s xe pool-list --minimal 2>/dev/null)
+  if [ -z "$POOL_UUID" ]; then
+    log "Error: Unable to retrieve pool UUID, exiting."
     exit 124
   fi
-elif [ ${TIMEOUT} = "false" ]; then
-  POOL_UUID=$(xe pool-list --minimal)
+else
+  # Use the new get_pool_uuid function for standard behavior
+  POOL_UUID=$(get_pool_uuid)
 fi
 
 ##############################

@@ -584,9 +584,6 @@ function vm_state_check() {
 ###############################################
 function vm_mon() {
   local retval=0
-  # Get the UUID of the current pool
-  local this_pool_uuid
-  this_pool_uuid=$(xe_pool_list --minimal)
 
   case $OP_MODE in
   1)
@@ -637,7 +634,7 @@ function vm_mon() {
       case $VM_STATE in
       running)
         log "$FUNCNAME" "VM $i state = $VM_STATE"
-        validate_vm_home_pool "$i" "${this_pool_uuid}"
+        validate_vm_home_pool "$i" "${POOL_UUID}"
         ;;
       suspended)
         log "$FUNCNAME" "VM $i state = $VM_STATE"
@@ -692,7 +689,7 @@ function vm_mon() {
       ##############################
       for j in "${HALTED_VMS[@]}"; do
         # Check if it's safe to start the VM here
-        if ! validate_vm_safe_to_start_here "$j" "${this_pool_uuid}"; then
+        if ! validate_vm_safe_to_start_here "$j" "${POOL_UUID}"; then
           continue
         fi
 
@@ -842,7 +839,7 @@ function vm_mon() {
 
                 # Get the domain ID of the VM
                 local vm_dom_to_destroy
-                vm_dom_to_destroy==$($LIST_DOMAINS | grep "$j" | awk '{print $1}')
+                vm_dom_to_destroy=$($LIST_DOMAINS | grep "$j" | awk '{print $1}')
                 ##########################
                 # Best-effort to destroy VM domains without tracking exit status
                 ##########################
@@ -1184,11 +1181,8 @@ function write_pool_state() {
   # Get autopromote_uuid from pool configuration
   # and write to state file autopromote_uuid
   ################################################
-  local pool_uuid
-  pool_uuid=$(xe_pool_list)
-
   local auto_uuid
-  auto_uuid=$(xe_pool_param_get uuid="$pool_uuid" param-name=other-config param-key=autopromote_uuid)
+  auto_uuid=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key=autopromote_uuid)
 
   log "$FUNCNAME" "Pool autopromote_uuid = [$auto_uuid]"
 
@@ -1325,7 +1319,7 @@ function check_slave_status() {
   # Remove Master IP from array
   ###############################
   local MASTER
-  MASTER=$($XE pool-list | grep -e master | awk -F ": " '{print $2}')
+  MASTER=$(xe_pool_master_uuid)
   for i in "${HOST_LIST_UUID[@]}"; do
     if [ "$i" = "$MASTER" ]; then
       log "$FUNCNAME" "Removing Master UUID from list of Hosts"
@@ -1859,8 +1853,7 @@ function autoselect_slave() {
 
   # Get the UUID of the current master host
   local master_host_uuid
-  # TODO: function to get the master and slave host name and uuid
-  master_host_uuid=$(pool-list | grep -e "master ( RO)" | awk -F ": " '{print $2}')
+  master_host_uuid=$(xe_pool_master_uuid)
   if [ -z "$master_host_uuid" ]; then
     log "$FUNCNAME" "MASTER host UUID not found - $FUNC_NAME failed"
     return 1
@@ -1869,7 +1862,7 @@ function autoselect_slave() {
   fi
 
   # Get a sorted list of all host UUIDs
-  mapfile -t sorted_host_list and mapfile < <(xe_host_list | sort)
+  mapfile -t sorted_host_list < <(xe_host_list | sort)
 
   # Initialize an empty array for the available slaves
   local autoselect_uuid_list=()
@@ -1891,12 +1884,10 @@ function autoselect_slave() {
   # Log the list of available slaves
   log "$FUNCNAME" "${#autoselect_uuid_list[@]} available Slave UUIDs found: ${autoselect_uuid_list[*]}"
 
-  # Get the pool UUID and the current autopromote UUID (current slave)
-  local pool_uuid
-  pool_uuid=$(xe_pool_list)
+  # Get the current autopromote UUID (current slave) for the pool
   local slave_new="${autoselect_uuid_list[0]}"
   local slave_current
-  slave_current=$(xe_pool_param_get uuid="$pool_uuid" param-name=other-config param-key=autopromote_uuid)
+  slave_current=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key=autopromote_uuid)
 
   # Check if we have a new slave to promote
   if [ ${#autoselect_uuid_list[@]} -gt 0 ]; then
@@ -1906,12 +1897,12 @@ function autoselect_slave() {
       log "$FUNCNAME" "New autopromote slave selected - updating pool-param:autopromote_uuid with $slave_new"
       email "$FUNCNAME" "NOTICE: New autopromote slave selected - updating pool-param:autopromote_uuid with $slave_new"
       # TODO: wrapper to xe_param_set
-      xe pool-param-set uuid="$pool_uuid" other-config:autopromote_uuid="$slave_new"
+      xe pool-param-set uuid="$POOL_UUID" other-config:autopromote_uuid="$slave_new"
     fi
   else
     log "$FUNCNAME" "No slaves available to become pool master"
     slave_new="none_available"
-    xe pool-param-set uuid="$pool_uuid" other-config:autopromote_uuid="$slave_new"
+    xe pool-param-set uuid="$POOL_UUID" other-config:autopromote_uuid="$slave_new"
   fi
 }
 #End function autoselect_slave
@@ -1938,19 +1929,11 @@ function autoselect_slave() {
 #   3  - error enabling the host (if host is in maintenance mode)
 ################################################
 function check_ha_enabled() {
-  # Retrieve the pool UUID using xe wrapper function
-  local pool_uuid
-  pool_uuid=$(xe_pool_list) # Using xe wrapper function
-  if [ -z "$pool_uuid" ]; then
-    log "$FUNCNAME" "Error retrieving pool UUID while checking if ha-lizard is enabled"
-    email "$FUNCNAME" "Error retrieving pool UUID while checking if ha-lizard is enabled - major error - ha-lizard in unknown state"
-    exit 1
-  fi
-  log "$FUNCNAME" "Checking if ha-lizard is enabled for pool: $pool_uuid"
+  log "$FUNCNAME" "Checking if ha-lizard is enabled for pool: $POOL_UUID"
 
   # Retrieve ha-lizard enabled status using the xe wrapper function
   local ha_enabled
-  ha_enabled=$(xe_pool_param_get uuid="$pool_uuid" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+  ha_enabled=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
 
   # Retrieve the current role from the pool configuration
   local my_role
@@ -2177,10 +2160,6 @@ function check_email_enabled() {
 function check_xs_ha() {
   log "$FUNCNAME" "Checking XenServer HA status"
 
-  # Retrieve pool UUID
-  local POOL_UUID
-  POOL_UUID=$(xe pool-list --minimal)
-
   # Get XenServer HA status for the pool
   local XS_HA_STATUS
   XS_HA_STATUS=$($XE pool-param-get uuid="$POOL_UUID" param-name=ha-enabled)
@@ -2208,8 +2187,6 @@ function check_xs_ha() {
 # xapi is responding
 ####################################
 function disable_ha_lizard() {
-  local POOL_UUID
-  POOL_UUID=$(xe pool-list --minimal)
   log "$FUNCNAME" "Attempting to forcefully disable HA-Lizard"
   if xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false; then
     log "$FUNCNAME" "Error encountered while disabling HA-Lizard"
@@ -2608,20 +2585,16 @@ function write_status_report() {
   # Initialize the status report string
   local status_report="\n"
 
-  # Get the pool UUID using the xe wrapper function
-  local pool_uuid
-  pool_uuid=$(xe_pool_list)
-
   # Get the pool name-label using the xe wrapper function
   local pool_name
-  pool_name=$(xe_pool_param_get uuid="$pool_uuid" param-name=name-label)
+  pool_name=$(xe_pool_param_get uuid="$POOL_UUID" param-name=name-label)
 
   # Get the pool master UUID using the xe wrapper function
   local pool_master
   pool_master=$(xe_pool_master_uuid)
 
   # Add pool information to the report
-  status_report+="Pool UUID       : $pool_uuid\n"
+  status_report+="Pool UUID       : $POOL_UUID\n"
   status_report+="Pool Name-Label : $pool_name\n"
   status_report+="Pool Master UUID: $pool_master\n"
 
