@@ -1896,13 +1896,12 @@ function autoselect_slave() {
     else
       log "$FUNCNAME" "New autopromote slave selected - updating pool-param:autopromote_uuid with $slave_new"
       email "$FUNCNAME" "NOTICE: New autopromote slave selected - updating pool-param:autopromote_uuid with $slave_new"
-      # TODO: wrapper to xe_param_set
-      xe pool-param-set uuid="$POOL_UUID" other-config:autopromote_uuid="$slave_new"
+      xe_pool_other_param_set "autopromote_uuid" "$slave_new"
     fi
   else
     log "$FUNCNAME" "No slaves available to become pool master"
     slave_new="none_available"
-    xe pool-param-set uuid="$POOL_UUID" other-config:autopromote_uuid="$slave_new"
+    xe_pool_other_param_set "autopromote_uuid" "$slave_new"
   fi
 }
 #End function autoselect_slave
@@ -2188,7 +2187,7 @@ function check_xs_ha() {
 ####################################
 function disable_ha_lizard() {
   log "$FUNCNAME" "Attempting to forcefully disable HA-Lizard"
-  if xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false; then
+  if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
     log "$FUNCNAME" "Error encountered while disabling HA-Lizard"
     return 1
   else

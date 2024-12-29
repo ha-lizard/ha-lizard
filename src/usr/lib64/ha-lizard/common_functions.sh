@@ -796,7 +796,6 @@ xe_command() {
 
   # Execute the xe command with the provided arguments
   local output
-  output=$(xe "$subcommand" "$@" --minimal 2>/dev/null)
 
   # Check if the command executed successfully
   if ! output=$(xe "$subcommand" "$@" --minimal 2>/dev/null); then
@@ -913,4 +912,192 @@ xe_pool_master_uuid() {
 
   # Return the pool master UUID
   echo "$pool_master_uuid"
+}
+
+############################################
+# xe pool wrapper command functions
+############################################
+# Wrapper for pool-param commands: add, get, remove, set
+# Execute the provided subcommand (e.g., "pool-param-add") with the pool UUID as the
+# first argument and "param-name=other-config" as the second argument.
+#
+# Parameters:
+#   subcommand (string): The pool-param subcommand to execute (e.g., "pool-param-add").
+#   additional_args (string): Any additional arguments to pass to the pool-param command.
+#
+# Returns:
+#   array: The output of the pool-param command as an array of UUIDs, separated by spaces.
+#
+# Errors:
+#   - If no subcommand is provided, returns an error.
+#   - If the pool-param command fails, returns an error.
+xe_pool_command() {
+  # The specific subcommand to execute (e.g., "pool-param-add")
+  local subcommand="$1"
+  # Remove the subcommand from the arguments
+  shift
+
+  # Validate that a subcommand is provided
+  if [[ -z $subcommand ]]; then
+    log "Error: No subcommand provided to xe_pool_command."
+    return 1
+  fi
+
+  # Execute the command and capture the output
+  local output
+  # Check if the command executed successfully
+  if ! output=$(xe "$subcommand" uuid="$POOL_UUID" "$@" 2>/dev/null); then
+    # Log an error if the command fails
+    log "Error: Failed to execute 'xe $subcommand $*'."
+    return 1
+  fi
+
+  # Return the output if successful  (empty or not)
+  echo "$output"
+  return 0
+}
+
+# Retrieves all key-value pairs stored in the pool's "other-config" parameter.
+#
+# xe command output example:
+# HA_FENCE_HEURISTICS_IPS: 192.168.10.1; HA_HOST_SELECT_METHOD: 0; HA_MGT_LINK_LOSS_TOLERANCE: 5;
+#
+# Parameters:
+#   None
+#
+# Returns:
+#   string: A space-separated list of key-value pairs retrieved from the "other-config" parameter.
+#   If the command fails, logs an error and returns 1.
+xe_pool_other_param_list() {
+  # Execute the xe command to fetch "other-config"
+  local output
+  if ! output=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config 2>/dev/null); then
+    # Log an error if the command fails
+    log "Error: Failed to execute 'xe pool-param-get uuid=$POOL_UUID param-name=other-config'."
+    return 1
+  fi
+
+  # Process the output: remove spaces, split on semicolons, filter by prefix, remove prefix and format as key-value pairs
+  if [[ -n $output ]]; then
+    echo "$output" | tr -d '[:space:]' | tr ';' '\n' | grep "^$PREFIX" | sed "s/^$PREFIX//; s/:/=/g"
+  fi
+
+  return 0
+}
+
+# Function to retrieve a specific key from the pool's "other-config" parameter
+# Retrieve the value for a specific key from the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to retrieve from the pool's "other-config" parameter.
+#
+# Returns:
+#   string: The value associated with the given key in the pool's "other-config" parameter.
+#
+# Errors:
+#   - If no key is provided, returns an error.
+#   - If the key does not exist in the pool's "other-config" parameter, returns an error.
+xe_pool_other_param_get() {
+  local param_key="$1"
+
+  # Validate input
+  if [[ -z $param_key ]]; then
+    log "Error: Missing parameter key for xe_pool_other_param_get."
+    return 1
+  fi
+
+  # Retrieve the value for the given key
+  local value
+  value=$(xe_pool_command "pool-param-get" "param-name=other-config" "param-key=$param_key")
+
+  # Check if the value is set
+  if [[ -z $value ]]; then
+    log "Error: Could not retrieve value for key '$param_key' from pool's 'other-config' parameter."
+    return 1
+  fi
+
+  # Return the value
+  echo "$value"
+}
+
+# Function to add a key-value pair to the pool's "other-config" parameter
+#
+# Function to add a key-value pair to the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to add to the pool's "other-config" parameter.
+#   param_value (string): The value associated with the key to be added.
+#
+# Returns:
+#   0: If the key-value pair is successfully added.
+#   1: If the key or value is missing, or if the command fails to add the key-value pair.
+xe_pool_other_param_add() {
+  local param_key="$1"
+  local param_value="$2"
+
+  # Validate inputs
+  if [[ -z $param_key || -z $param_value ]]; then
+    log "Error: Missing key or value for xe_pool_other_param_add."
+    return 1
+  fi
+
+  if ! xe_pool_command "pool-param-add" "param-name=other-config" "$param_key=$param_value"; then
+    log "Error: Unable to add key-value pair '$param_key=$param_value' to the pool's 'other-config' parameter."
+    return 1
+  fi
+}
+
+# Function to remove a key from the pool's "other-config" parameter
+#
+# Function to remove a key from the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to remove from the pool's "other-config" parameter.
+#
+# Returns:
+#   0: If the key is successfully removed.
+#   1: If the parameter key is missing, or if the command fails to remove the key.
+xe_pool_other_param_remove() {
+  local param_key="$1"
+
+  # Validate input
+  if [[ -z $param_key ]]; then
+    log "Error: Missing parameter key for xe_pool_other_param_remove."
+    return 1
+  fi
+
+  # Execute the command
+  if ! xe_pool_command "pool-param-remove" "param-name=other-config" "param-key=$param_key"; then
+    log "Error: Unable to remove key '$param_key' from the pool's 'other-config' parameter."
+    return 1
+  fi
+}
+
+# Function to set a key-value pair in the pool's "other-config" parameter
+#
+# Description:
+#   Sets a key-value pair in the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to set in the parameter.
+#   param_value (string): The value to set for the given key.
+#
+# Returns:
+#   0: If the key-value pair was set successfully.
+#   1: If the key-value pair could not be set.
+xe_pool_other_param_set() {
+  local param_key="$1"
+  local param_value="$2"
+
+  # Validate inputs
+  if [[ -z $param_key || -z $param_value ]]; then
+    log "Error: Missing key or value for xe_pool_other_param_add."
+    return 1
+  fi
+
+  # Execute the command
+  if ! xe_pool_command "pool-param-set" "other-config:$param_key=$param_value"; then
+    log "Error: Unable to set key-value pair '$param_key=$param_value' in the pool's 'other-config' parameter."
+    return 1
+  fi
 }

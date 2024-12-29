@@ -596,12 +596,10 @@ if [[ $STATE == slave* ]]; then
                 RETVAL=$?
                 if [ $RETVAL -eq 0 ]; then
                   log "New Master ha_enabled check"
-                  DB_HA_STATE=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+                  DB_HA_STATE=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
                   if [ "$DB_HA_STATE" = "false" ]; then
                     log "This host just became master - re-enabling HA"
-                    xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true
-                    RETVAL=$?
-                    if [ $RETVAL -eq 0 ]; then
+                    if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
                       log "HA returned to enabled state"
                     else
                       log "Error returning HA to enabled state"

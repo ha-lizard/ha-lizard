@@ -62,8 +62,8 @@ function insert() {
   for i in $PARAM_LIST; do
     PARAM=$(echo "$i" | awk -F "=" '{print $1}')
     VALUE=$(echo "$i" | awk -F "=" '{print $2}')
-    if [ "$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=$PREFIX"$PARAM" &>/dev/null)" -ne 0 ]; then
-      xe pool-param-add uuid="$POOL_UUID" param-name=other-config $PREFIX"$PARAM"="$VALUE"
+    if ! xe_pool_other_param_get "$PREFIX$PARAM"; then
+      xe_pool_other_param_add "$PREFIX$PARAM" "$VALUE"
       echo "Inserting $PREFIX$PARAM=$VALUE"
     fi
   done
@@ -73,7 +73,7 @@ function remove() {
   for i in $PARAM_LIST; do
     PARAM=$(echo "$i" | awk -F "=" '{print $1}')
     VALUE=$(echo "$i" | awk -F "=" '{print $2}')
-    xe pool-param-remove uuid="$POOL_UUID" param-name=other-config param-key="$PREFIX$PARAM"
+    xe_pool_other_param_remove "$PREFIX$PARAM"
     echo "Removing $PREFIX$PARAM=$VALUE"
   done
 } #End function remove
@@ -110,42 +110,47 @@ function validate_ip() {
 } #End function validate_ip
 
 #################################
-# Function get retrieves all
-# custom global params from xapi
-# and displays.
-# Following params supported for arg1
+# Retrieve and display all custom global parameters from xapi param-name=other-config
 #
-# none - no argument - standard display
-# with columns
+# Parameters:
+#   --silent  - Only populate the global PARAM_LIST array without displaying.
+#   -l        - List display without columns.
 #
-# -l - list display - no columns
+# Output:
+#   - Populates the global PARAM_LIST array with formatted parameters and values.
+#   - Displays the formatted list of global parameters and values with columns.
 #
-# --silent - only populate global array
-# PARAM_LIST() without displaying
-#################################
-function get() {
-  LIST=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config --minimal | tr -d '[:space:]')
-  DEF_IFS=$IFS
-  IFS="; "
-  PARAM_LIST=()
-  for i in "${LIST[@]}"; do
-    if [[ $i = $PREFIX* ]]; then
-      i=${i/$PREFIX/}
-      i=${i/:/=}
-      PARAM_LIST+=("$i")
-      echo "$i" >>./params.tmp
-    fi
-  done
+# Notes:
+#   - Parameters prefixed with the defined $PREFIX are processed.
 
-  if [ "$1" != "--silent" ] && [ "$1" != "-l" ]; then
-    sort <./params.tmp | column
-  elif [ "$1" = "-l" ]; then
-    sort <./params.tmp
+#################################
+get() {
+  local raw_output
+  local formatted_list
+
+  # Fetch the "other-config" parameters as a raw string
+  if ! raw_output=$(xe_pool_other_param_list); then
+    log "Error: Failed to retrieve 'other-config' parameters."
+    return 1
   fi
 
-  IFS=$DEF_IFS
-  rm -f ./params.tmp
-} #End function get
+  # Process the raw output into an array
+  mapfile -t formatted_list <<<"$raw_output"
+
+  # Populate the global PARAM_LIST array
+  PARAM_LIST=("${formatted_list[@]}")
+
+  # Display based on the argument provided
+  if [[ $1 != "--silent" && $1 != "-l" ]]; then
+    # Use echo to print each element, pipe to sort and format as columns
+    echo "${formatted_list[@]}" | tr ' ' '\n' | sort | column
+  elif [[ $1 == "-l" ]]; then
+    # Print each element as a sorted list
+    echo "${formatted_list[@]}" | tr ' ' '\n' | sort
+  fi
+
+  return 0
+}
 
 ##################################
 # Function set sets the specified
@@ -179,8 +184,7 @@ function set() {
     else
       validate "$PARAM_UPPER" ""
     fi
-    if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:$PREFIX"$PARAM_UPPER"="$3")" = 0 ]; then
-      #get
+    if xe_pool_other_param_set "$PREFIX$PARAM_UPPER" "$3"; then
       green
       echo "Successfully updated $2 to value: $3"
       WAIT=$(get -l | grep MONITOR_DELAY | awk -F "=" '{print $2}') && WAIT=$((WAIT * 2))
@@ -189,7 +193,6 @@ function set() {
       restart_required "$2"
     fi
   else
-    #get
     red
     echo "Parameter name $2 not found in xapi database - check your configuration and syntax"
     echo "Valid configuration parameters are listed above"
@@ -239,7 +242,7 @@ function set-quiet() {
     fi
 
     # Set the parameter
-    if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:$PREFIX"$PARAM_UPPER"="$3")" = 0 ]; then
+    if xe_pool_other_param_set "$PREFIX$PARAM_UPPER" "$3"; then
       green
       echo "Successfully updated $2 to value: $3"
       normal
@@ -692,7 +695,7 @@ function status() {
     local STATUS=TIMEOUT
   else
     local STATUS
-    STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+    STATUS=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
   fi
 
   STATUS_RETVAL=$?
@@ -787,7 +790,7 @@ HA Enabled:@ $STATUS")
     echo "ha-lizard is disabled. Enable? <yes or Enter to quit>"
     read -r ENABLE
     if [ "$ENABLE" = "yes" ]; then
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
         WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
         echo "Success. HA enabled. "
       else
@@ -814,7 +817,7 @@ HA Enabled:@ $STATUS")
     echo "ha-lizard is enabled. Disable? <yes or Enter to quit>"
     read -r DISABLE
     if [ "$DISABLE" = "yes" ]; then
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
         WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
         echo "Success. ha-lizard disabled. Wait at least $WAIT seconds for changes to apply to all hosts"
       else
@@ -830,14 +833,13 @@ HA Enabled:@ $STATUS")
     echo "Enter <true> to enable or <false> to disable"
     read -r UNKNOWN
     if [ "$UNKNOWN" = "false" ]; then
-
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
         echo "Success. ha-lizard disabled"
       else
         exit 0
       fi
     elif [ "$UNKNOWN" = "true" ]; then
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
         echo "Success. ha-lizard enabled"
       else
         exit 0
@@ -857,7 +859,7 @@ function cluster_status() {
     local STATUS=TIMEOUT
   else
     local STATUS
-    STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+    STATUS=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
   fi
   if [ "$STATUS" = "false" ]; then
     HA_STATUS=$(
@@ -1396,14 +1398,12 @@ fi
 
 function ha-status() {
   local HA_STATUS
-  HA_STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+  HA_STATUS=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
   echo "$HA_STATUS"
 } #End function ha-status
 
 function ha-enable() {
-  xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true
-  RETVAL=$?
-  if [ $RETVAL -eq 0 ]; then
+  if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
     echo "Success"
     exit 0
   else
@@ -1413,9 +1413,7 @@ function ha-enable() {
 } #End function ha-enable
 
 function ha-disable() {
-  xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false
-  RETVAL=$?
-  if [ $RETVAL -eq 0 ]; then
+  if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
     echo "Success"
     exit 0
   else
