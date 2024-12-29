@@ -63,6 +63,78 @@ declare -r SSH_PUBLIC_KEY="$SSH_PRIVATE_KEY.pub"
 declare -r -a SSH_OPTIONS=(-i "$SSH_PRIVATE_KEY" -o ConnectTimeout=5)
 # NOTE: recent versions of ssh has the option "StrictHostKeyChecking=accept-new" that we could use to replace the logic of the known_hosts file.
 
+##############################################
+# Function: get_pool_uuid
+#
+# Description:
+#   Retrieves the UUID of the pool using the following fallback sequence:
+#   1. XAPI (via $XE pool-list --minimal)
+#   2. A local file (${STATE_PATH}/pool_uuid)
+#
+#   If neither source is successful, the function logs an error and exits.
+#
+# Usage:
+#   POOL_UUID=$(get_pool_uuid)
+#
+# Globals:
+#   POOL_UUID - Global variable to store the pool UUID
+#   STATE_PATH - Path to the directory containing the pool_uuid file
+#
+# Returns:
+#   - Outputs the pool UUID (echo)
+#   - Returns 0 on success, exits with error code 1 on failure
+#
+# Dependencies:
+#   - $XE (CLI for XAPI, assumed to be available in the environment)
+#   - log (logging function, assumed to be defined elsewhere)
+#   - ${STATE_PATH}/pool_uuid (optional file containing the pool UUID)
+##############################################
+function get_pool_uuid() {
+  # Check if the global variable POOL_UUID is already set
+  if [ -n "$POOL_UUID" ]; then
+    echo "$POOL_UUID"
+    return 0
+  fi
+
+  # Attempt to retrieve the pool UUID using XAPI
+  local uuid
+  uuid=$(timeout "${XE_TIMEOUT:-10s}" xe pool-list --minimal 2>/dev/null)
+
+  if [ -n "$uuid" ]; then
+    POOL_UUID=$uuid
+    log "Pool UUID successfully retrieved from XAPI: $POOL_UUID"
+    echo "$POOL_UUID"
+    return 0
+  fi
+
+  # Fallback: Attempt to read the UUID from the local state file
+  local state_file="${STATE_PATH}/pool_uuid"
+  if [ -f "$state_file" ]; then
+    uuid=$(<"$state_file")
+    if [ -n "$uuid" ]; then
+      POOL_UUID=$uuid
+      log "Pool UUID retrieved from state file: $POOL_UUID"
+      echo "$POOL_UUID"
+      return 0
+    else
+      log "Error: State file $state_file exists but is empty."
+    fi
+  else
+    log "State file $state_file does not exist."
+  fi
+
+  # If all methods fail, log an error and exit with status 1
+  log "Error: Could not retrieve pool UUID from XAPI or state file."
+  echo "Error: Could not retrieve pool UUID." >&2
+  exit 1
+}
+
+##############################################
+# Retrieve and store the pool UUID
+# This ensures that POOL_UUID GLOBAL variable is set at the start of the script.
+##############################################
+POOL_UUID=$(get_pool_uuid)
+
 # backup_file: Backup a file while preserving its attributes and ownership.
 #
 # Input: file_path - the path to the file to be backed up.
@@ -675,4 +747,357 @@ update_local_conf() {
   fi
 
   return 0
+}
+
+# Function to validate a UUID string format
+# Takes one argument: the UUID to validate
+# Returns 0 if valid, 1 if invalid
+function validate_uuid() {
+  local uuid="$1"
+
+  # Regular expression for UUID format
+  if [[ -n $uuid ]] && [[ $uuid =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]; then
+    return 0 # Valid UUID format
+  else
+    return 1 # Invalid UUID format
+  fi
+}
+
+############################################
+#
+# xe wrapper command functions
+#
+############################################
+
+# Function to execute an xe command and return the output as an array
+# Execute an xe command and return the output as an array.
+#
+# Parameters:
+#   subcommand (string): The xe subcommand to execute (e.g., "vm-list").
+#   additional_args (string): Any additional arguments to pass to the xe command.
+#
+# Returns:
+#   array: The output of the xe command as an array of UUIDs, separated by spaces.
+#
+# Errors:
+#   - If no subcommand is provided, returns an error.
+#   - If the xe command fails, returns an error.
+xe_command() {
+  # The subcommand to execute (e.g., "vm-list")
+  local subcommand="$1"
+  # Remove the subcommand from arguments
+  shift
+
+  # Validate that a subcommand is provided
+  if [[ -z $subcommand ]]; then
+    log "Error: No subcommand provided to xe_command."
+    return 1
+  fi
+
+  # Execute the xe command with the provided arguments
+  local output
+
+  # Check if the command executed successfully
+  if ! output=$(xe "$subcommand" "$@" --minimal 2>/dev/null); then
+    log "Error: Failed to execute 'xe $subcommand'."
+    return 1
+  fi
+
+  # If output is empty, return without error (no UUIDs is valid)
+  if [[ -z $output ]]; then
+    return 0
+  fi
+
+  # Convert comma-separated output into an array using IFS
+  IFS=',' read -ra uuid_array <<<"$output"
+
+  # Return the array as space-separated values
+  echo "${uuid_array[@]}"
+}
+
+# Specific xe wrapper functions for common commands
+#
+# Description:
+#   These functions are wrappers for various `xe` subcommands, making it easier to interact with XenServer.
+#   Each function returns a list of UUIDs or other relevant data, depending on the subcommand.
+#
+# Parameters:
+#   $@: Any additional arguments to pass to the `xe` command.
+#
+# Returns:
+#   Array: The output of the `xe` command as an array of UUIDs, separated by spaces.
+
+# Wrapper for host-list subcommand
+xe_host_list() {
+  xe_command "host-list" "$@"
+}
+
+# Wrapper for host-param-get subcommand
+xe_host_param_get() {
+  xe_command "host-param-get" "$@"
+}
+
+# Wrapper for message-list subcommand
+xe_message_list() {
+  xe_command "message-list" "$@"
+}
+
+# Wrapper for network-list subcommand
+xe_network_list() {
+  xe_command "network-list" "$@"
+}
+
+# Wrapper for pif-list subcommand
+xe_pif_list() {
+  xe_command "pif-list" "$@"
+}
+
+# Wrapper for pool-param-get subcommand
+xe_pool_param_get() {
+  xe_command "pool-param-get" "$@"
+}
+
+# Wrapper for vbd-list subcommand
+xe_vbd_list() {
+  xe_command "vbd-list" "$@"
+}
+
+# Wrapper for vdi-list subcommand
+xe_vdi_list() {
+  xe_command "vdi-list" "$@"
+}
+
+# Wrapper for vm-list subcommand
+xe_vm_list() {
+  xe_command "vm-list" "$@" "is-control-domain=false" "is-a-snapshot=false"
+}
+
+# Wrapper for vm-param-get subcommand
+xe_vm_param_get() {
+  xe_command "vm-param-get" "$@"
+}
+
+# Wrapper for pbd-list subcommand
+xe_pbd_list() {
+  xe_command "pbd-list" "$@"
+}
+
+# Wrapper for appliance-list subcommand
+xe_appliance_list() {
+  xe_command "appliance-list" "$@"
+}
+
+# Description:
+#   Gets the master UUID for the specified pool.
+#
+# Use POOL_UUID (string) GLOBAL variables as parameter.
+#
+# Returns:
+#   string: The master UUID for the pool, or an error if the pool UUID is not provided or if the command fails.
+xe_pool_master_uuid() {
+
+  # Validate that the pool UUID is provided
+  if [[ -z $POOL_UUID ]]; then
+    log "Error: No pool UUID provided to xe_pool_master_uuid."
+    return 1
+  fi
+
+  # Get the master UUID for the pool
+  pool_master_uuid=$(xe_pool_param_get uuid="$POOL_UUID" param-name=master)
+  # If we get a result, return it, otherwise return an error
+  if [[ -z $pool_master_uuid ]]; then
+    log "Error: Failed to retrieve the master UUID for pool: $POOL_UUID"
+    return 1
+  fi
+
+  # Return the pool master UUID
+  echo "$pool_master_uuid"
+}
+
+############################################
+# xe pool wrapper command functions
+############################################
+# Wrapper for pool-param commands: add, get, remove, set
+# Execute the provided subcommand (e.g., "pool-param-add") with the pool UUID as the
+# first argument and "param-name=other-config" as the second argument.
+#
+# Parameters:
+#   subcommand (string): The pool-param subcommand to execute (e.g., "pool-param-add").
+#   additional_args (string): Any additional arguments to pass to the pool-param command.
+#
+# Returns:
+#   array: The output of the pool-param command as an array of UUIDs, separated by spaces.
+#
+# Errors:
+#   - If no subcommand is provided, returns an error.
+#   - If the pool-param command fails, returns an error.
+xe_pool_command() {
+  # The specific subcommand to execute (e.g., "pool-param-add")
+  local subcommand="$1"
+  # Remove the subcommand from the arguments
+  shift
+
+  # Validate that a subcommand is provided
+  if [[ -z $subcommand ]]; then
+    log "Error: No subcommand provided to xe_pool_command."
+    return 1
+  fi
+
+  # Execute the command and capture the output
+  local output
+  # Check if the command executed successfully
+  if ! output=$(xe "$subcommand" uuid="$POOL_UUID" "$@" 2>/dev/null); then
+    # Log an error if the command fails
+    log "Error: Failed to execute 'xe $subcommand $*'."
+    return 1
+  fi
+
+  # Return the output if successful  (empty or not)
+  echo "$output"
+  return 0
+}
+
+# Retrieves all key-value pairs stored in the pool's "other-config" parameter.
+#
+# xe command output example:
+# HA_FENCE_HEURISTICS_IPS: 192.168.10.1; HA_HOST_SELECT_METHOD: 0; HA_MGT_LINK_LOSS_TOLERANCE: 5;
+#
+# Parameters:
+#   None
+#
+# Returns:
+#   string: A space-separated list of key-value pairs retrieved from the "other-config" parameter.
+#   If the command fails, logs an error and returns 1.
+xe_pool_other_param_list() {
+  # Execute the xe command to fetch "other-config"
+  local output
+  if ! output=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config 2>/dev/null); then
+    # Log an error if the command fails
+    log "Error: Failed to execute 'xe pool-param-get uuid=$POOL_UUID param-name=other-config'."
+    return 1
+  fi
+
+  # Process the output: remove spaces, split on semicolons, filter by prefix, remove prefix and format as key-value pairs
+  if [[ -n $output ]]; then
+    echo "$output" | tr -d '[:space:]' | tr ';' '\n' | grep "^$PREFIX" | sed "s/^$PREFIX//; s/:/=/g"
+  fi
+
+  return 0
+}
+
+# Function to retrieve a specific key from the pool's "other-config" parameter
+# Retrieve the value for a specific key from the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to retrieve from the pool's "other-config" parameter.
+#
+# Returns:
+#   string: The value associated with the given key in the pool's "other-config" parameter.
+#
+# Errors:
+#   - If no key is provided, returns an error.
+#   - If the key does not exist in the pool's "other-config" parameter, returns an error.
+xe_pool_other_param_get() {
+  local param_key="$1"
+
+  # Validate input
+  if [[ -z $param_key ]]; then
+    log "Error: Missing parameter key for xe_pool_other_param_get."
+    return 1
+  fi
+
+  # Retrieve the value for the given key
+  local value
+  value=$(xe_pool_command "pool-param-get" "param-name=other-config" "param-key=$param_key")
+
+  # Check if the value is set
+  if [[ -z $value ]]; then
+    log "Error: Could not retrieve value for key '$param_key' from pool's 'other-config' parameter."
+    return 1
+  fi
+
+  # Return the value
+  echo "$value"
+}
+
+# Function to add a key-value pair to the pool's "other-config" parameter
+#
+# Function to add a key-value pair to the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to add to the pool's "other-config" parameter.
+#   param_value (string): The value associated with the key to be added.
+#
+# Returns:
+#   0: If the key-value pair is successfully added.
+#   1: If the key or value is missing, or if the command fails to add the key-value pair.
+xe_pool_other_param_add() {
+  local param_key="$1"
+  local param_value="$2"
+
+  # Validate inputs
+  if [[ -z $param_key || -z $param_value ]]; then
+    log "Error: Missing key or value for xe_pool_other_param_add."
+    return 1
+  fi
+
+  if ! xe_pool_command "pool-param-add" "param-name=other-config" "$param_key=$param_value"; then
+    log "Error: Unable to add key-value pair '$param_key=$param_value' to the pool's 'other-config' parameter."
+    return 1
+  fi
+}
+
+# Function to remove a key from the pool's "other-config" parameter
+#
+# Function to remove a key from the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to remove from the pool's "other-config" parameter.
+#
+# Returns:
+#   0: If the key is successfully removed.
+#   1: If the parameter key is missing, or if the command fails to remove the key.
+xe_pool_other_param_remove() {
+  local param_key="$1"
+
+  # Validate input
+  if [[ -z $param_key ]]; then
+    log "Error: Missing parameter key for xe_pool_other_param_remove."
+    return 1
+  fi
+
+  # Execute the command
+  if ! xe_pool_command "pool-param-remove" "param-name=other-config" "param-key=$param_key"; then
+    log "Error: Unable to remove key '$param_key' from the pool's 'other-config' parameter."
+    return 1
+  fi
+}
+
+# Function to set a key-value pair in the pool's "other-config" parameter
+#
+# Description:
+#   Sets a key-value pair in the pool's "other-config" parameter.
+#
+# Parameters:
+#   param_key (string): The key to set in the parameter.
+#   param_value (string): The value to set for the given key.
+#
+# Returns:
+#   0: If the key-value pair was set successfully.
+#   1: If the key-value pair could not be set.
+xe_pool_other_param_set() {
+  local param_key="$1"
+  local param_value="$2"
+
+  # Validate inputs
+  if [[ -z $param_key || -z $param_value ]]; then
+    log "Error: Missing key or value for xe_pool_other_param_add."
+    return 1
+  fi
+
+  # Execute the command
+  if ! xe_pool_command "pool-param-set" "other-config:$param_key=$param_value"; then
+    log "Error: Unable to set key-value pair '$param_key=$param_value' in the pool's 'other-config' parameter."
+    return 1
+  fi
 }
