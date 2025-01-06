@@ -33,7 +33,26 @@
   },
 
   "cSpell.words": [
-    "shellcheck"
+    "autopromote",
+    "autoselect",
+    "autoselected",
+    "Costantino",
+    "IRMC",
+    "killall",
+    "KILLALL",
+    "ONFAIL",
+    "POWEROFF",
+    "pulsesupply",
+    "resetvdis",
+    "scanrate",
+    "sendmail",
+    "shellcheck",
+    "STONITH",
+    "toolstack",
+    "vapps",
+    "VAPPS",
+    "xapi",
+    "XAPI"
   ],
   "ansible.python.interpreterPath": "/bin/python3"
 }
