@@ -72,33 +72,36 @@ HA-Lizard has been tested extensively with Xen Cloud Platform (XCP) version 1.6,
 
 ## Installation
 
-Starting from version `__VERSION__`, HA-Lizard is packaged as an RPM file for simplified installation and upgrades. RPM packaging facilitates inclusion in repositories and eliminates the need for traditional installation scripts, although a legacy installer is included for special cases.
+Starting from version **2.5**, HA-Lizard have created a yum repository and RPM packaged for simplified installation and upgrades. This eliminates the need for traditional installation scripts, although a legacy installer is included for special cases.
+
+> [!NOTE]
+> To get the last version of the installation and packages, visit [HA-Lizard Repo](https://ha-lizard.github.io/repo/) website.
 
 ### Installing HA-Lizard
 
-1. Copy the RPM file to a temporary directory (e.g., `/tmp/`).
-2. Install the RPM package:
+1. Download the latest HA-Lizard YUM configuration RPM from [our repository](https://github.com/ha-lizard/repo/releases/latest/).
+2. Install the HA-Lizard YUM configuration RPM using the `rpm` command.
+3. Install or update the `ha-lizard` and `iscsi-ha` packages using the `yum` command.
+
+> [!NOTE]
+> The repositories are **disabled by default** to prevent automatic updates. You must **enable** the repository each time you install or update packages.
 
 ```bash
-rpm -Uvh ha-lizard-2.2.*.rpm
+wget https://ha-lizard.github.io/repo/ha-lizard-repo-<latest_version>.x86_64.rpm
+rpm -ivh ha-lizard-repo-*.x86_64.rpm
+yum --enablerepo=ha-lizard* install ha-lizard iscsi-ha
 ```
 
 The RPM installation sets default pool parameters in the XAPI database for new installations and updates any parameters during upgrades.
-Activate the services:
-
-```bash
-service ha-lizard start
-service ha-lizard-watchdog start
-```
 
 At this stage, the services are running, but HA is disabled by default. Use the command-line tool ha-cfg to enable HA after completing the installation on all hosts within a pool.
 
 ### Removing HA-Lizard
 
-To remove HA-Lizard, use the following command:
+To remove HA-Lizard and all the associated packages, use the following command:
 
 ```bash
-rpm -e ha-lizard-2.2.*.rpm
+yum remove ha-lizard
 ```
 
 ## Configuring
