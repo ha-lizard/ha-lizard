@@ -1,4 +1,4 @@
-# High Availability Virtualization Using HA-Lizard with Citrix XenServer
+# High Availability Virtualization Using HA-Lizard with XenServer/XCP
 
 ![Installation and Reference Guide](./media/image1.png){width="4.0in" height="2.6in"}
 
