@@ -466,13 +466,15 @@ Create a list of IP addresses or domain names to check. The list should be delim
 
 As of version 1.7.7, the default value is set to 8.8.8.8, which is a well-known address. **However, live production systems should NOT use the default address.** This address should ideally be set to a local IP on the management network that is very close to the management interface of the hosts. Typically, this would be the IP address of the switch the hosts are connected to. If more than one IP address is specified, all of the addresses must be successfully reached with ping in order to count as a single vote.
 
-### Additional Local Configuration Parameters {#additional-local-configuration-parameters .unnumbered}
+### Additional Local Configuration Parameters
 
 Granular control over logging and email alerts is provided in the local configuration override file. These settings allow for enabling/disabling logging alerts and email alerts on a per-function basis. These can be useful when troubleshooting or logging a specific function or to minimize the volume of log files and system email alerts.
 
 ### Logging and Email Alert Settings
 
-#### Logging Control (1 = Enabled, 0 = Disabled)
+#### Logging Control
+
+Legend: 1 = Enabled / 0 = Disabled
 
 | Setting                            | Default Value | Description                                       |
 | ---------------------------------- | ------------- | ------------------------------------------------- |
@@ -508,7 +510,9 @@ Granular control over logging and email alerts is provided in the local configur
 | `LOG_reset_vm_vdi`                 | 1             | Logs for `reset_vm_vdi`                           |
 | `LOG_validate_this_host_vm_states` | 1             | Logs for `validate_this_host_vm_states`           |
 
-#### Email Alert Control (1 = Enabled, 0 = Disabled)
+#### Email Alert Control
+
+Legend: 1 = Enabled / 0 = Disabled
 
 | Setting                             | Default Value | Description                                     |
 | ----------------------------------- | ------------- | ----------------------------------------------- |
@@ -655,7 +659,7 @@ By default, a watchdog service is installed and started when installing with the
 
 > **Important Note:** Stopping the HA service while the watchdog service is running will be ineffective as the watchdog will restart the HA service within a few seconds after a stop. In previous versions of HA-Lizard, the HA-Lizard init script can be invoked with a `-w` option to also start or stop the watchdog service with the HA service. The `--w` option has been removed as of version 2.1 due to the inability to pass additional arguments under systemd.
 
-### Starting HA-Lizard {#starting-ha-lizard .unnumbered}
+### Starting HA-Lizard
 
 ```bash
 service ha-lizard start # Starts the service and the watchdog
@@ -663,7 +667,7 @@ service ha-lizard stop # Stops the service (watchdog will continue to run)
 service ha-lizard status # Reports running status of the service
 ```
 
-### HA Watchdog Service {#ha-watchdog-service .unnumbered}
+### HA Watchdog Service
 
 A watchdog service is installed by default and started/stopped via the
 main service init script or can be individually managed with:
@@ -677,12 +681,12 @@ service ha-lizard-watchdog status # Reports running status of the service
 The default watchdog interval for checking the HA service is 10 seconds.
 This can be changed by editing the variable `WATCH_INTERVAL` in `/etc/init.d/ha-lizard-watchdog`.
 
-### Disabling the Watchdog Service {#disabling-the-watchdog-service .unnumbered}
+### Disabling the Watchdog Service
 
 The watchdog service is mandatory when fencing is enabled. If fencing is not enabled, the watchdog service can be disabled by commenting or deleting the line `WATCHDOG=/etc/init.d/ha-lizard-watchdog` in the HA
 init script located in `/etc/init.d/ha-lizard`.
 
-#### HA Monitor
+### HA Monitor
 
 A monitor daemon is provided for manually running the HA service. This is intended only for systems that are not compatible with the provided init script as described above.
 
@@ -769,7 +773,7 @@ After the reboot, the host will remain in the suspended state, blocking any HA l
 
 HA suspension only affects the self-fenced host. The other hosts in the pool remain unaffected.
 
-#### Checking if a Host is Suspended {#checking-if-a-host-is-suspended .unnumbered}
+#### Checking if a Host is Suspended
 
 The system will send an email alert when a host enters suspended HA mode. By default, alerts are triggered every hour until the issue is resolved and the suspension cleared. The CLI tool can be used to check the host's status using the `ha-cfg status` command.
 
@@ -901,7 +905,7 @@ A sample file is presented below:
 
 ![Fencing iRMC configuration](./media/image13.png){width="4.5625in" height="0.6770833333333334in"}
 
-#### Adding Your Own Custom Fencing Script {#adding-your-own-custom-fencing-script .unnumbered}
+#### Adding Your Own Custom Fencing Script
 
 A structured framework is provided for adding custom fencing scripts. The general parameters for adding a custom script are as follows:
 
