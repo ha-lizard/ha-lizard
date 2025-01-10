@@ -1104,7 +1104,7 @@ function get_vms_on_host_local() {
 ##########################################
 function check_vm_managed() {
   local VAPP_LIST
-  VAPP_LIST=$($XE appliance-list --minimal | tr "," "\n")
+  mapfile -t VAPP_LIST < <($XE appliance-list --minimal | tr "," "\n")
   local VAPP_COUNT
   VAPP_COUNT=${#VAPP_LIST[@]}
   log "$FUNCNAME" "$VAPP_COUNT vapps found: ${VAPP_LIST[*]}"
@@ -2207,7 +2207,7 @@ function disable_ha_lizard() {
 # Returns 1 on error
 ####################################
 function update_global_conf_params() {
-  $CLI_TOOL get timeout >"$GLOBAL_CONF_TMP"
+  $CLI_TOOL get >"$GLOBAL_CONF_TMP"
   if [ $? != "124" ]; then
     $CAT "$GLOBAL_CONF_TMP" >"$GLOBAL_CONF"
     log "$FUNCNAME" "Successfully updated global pool configuration settings in $GLOBAL_CONF."
@@ -2694,7 +2694,7 @@ function write_status_report() {
 function validate_vm_ha_state() {
   log "$FUNCNAME" "Validating VM HA-state"
   local VM_LIST
-  VM_LIST=$($XE vm-list is-control-domain=false --minimal | tr ',' '\n')
+  mapfile -t VM_LIST < <($XE vm-list is-control-domain=false --minimal | tr "," "\n")
   for vm_state_to_validate in "${VM_LIST[@]}"; do
     local THIS_VM_STATE
     THIS_VM_STATE=$($XE vm-param-get uuid="$vm_state_to_validate" param-name=other-config param-key=XenCenter.CustomFields."${XC_FIELD_NAME}")
@@ -2742,7 +2742,7 @@ function reset_vm_vdi() {
   #################################
   local SUCCESS=true
   local THIS_VM_VBD_LIST
-  THIS_VM_VBD_LIST=$(xe vbd-list vm-uuid="${THIS_VM_UUID}" --minimal | tr ',' '\n')
+  mapfile -t THIS_VM_VBD_LIST < <($XE vbd-list vm-uuid="${THIS_VM_UUID}" --minimal | tr "," "\n")
   for vbd in "${THIS_VM_VBD_LIST[@]}"; do
     local VDI_UUID
     VDI_UUID=$(xe vbd-param-get uuid="$vbd" param-name=vdi-uuid)

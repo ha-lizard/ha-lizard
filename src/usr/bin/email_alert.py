@@ -14,8 +14,8 @@ socket.setdefaulttimeout(2)
 def print_usage():
     """Print usage instructions for the script."""
     print("HA-Lizard email alert sender. Version 1.0 www.halizard.com")
-    print("Pass in all command line arguments as follows")
-    print(f"{sys.argv[0]} from_email to_email subject timestamp process_name message_body smtp_server smtp_port smtp_user smtp_pass")
+    print("{} from_email to_email subject timestamp process_name message_body smtp_server smtp_port smtp_user smtp_pass".format(
+        sys.argv[0]))
 
 
 def get_hostname():
@@ -56,14 +56,14 @@ def construct_message(from_email, to_email, subject, message_body, process_name,
                 <td width="160"><img height="111" width="150" src="http://www.halizard.com/images/ha_lizard_alert_logo.png" alt="" /></td>
                 <td width="440"><span style="color: rgb(0, 102, 0);"><strong><span style="font-size: larger;"><span style="font-family: Arial;">HA-Lizard Alert Notification<br />
                 <br />
-                Process: %s <br />
-                Host: %s <br />
-                Time: %s </span></span></strong></span></td>
+                Process: {process_name} <br />
+                Host: {hostname} <br />
+                Time: {timestamp} </span></span></strong></span></td>
             </tr>
             <tr>
                 <td width="600" colspan="2">
                 <p><br />
-                <span style="font-family: Arial;"><span style="font-size: smaller;"> %s <br />
+                <span style="font-family: Arial;"><span style="font-size: smaller;"> {message_body_html} <br />
                 <br />
                 </span></span></p>
                 </td>
@@ -76,7 +76,7 @@ def construct_message(from_email, to_email, subject, message_body, process_name,
         </tbody>
     </table>
     <p>&nbsp;</p>
-    """ % (process_name, hostname, timestamp, message_body_html)
+    """.format(process_name=process_name, hostname=hostname, timestamp=timestamp, message_body_html=message_body_html)
 
     text_part = MIMEText(text, 'plain')
     html_part = MIMEText(html, 'html')
@@ -99,22 +99,24 @@ def send_email(from_email, to_email, msg, smtp_server, smtp_port, smtp_user, smt
         smtp_user (str): SMTP username for authentication.
         smtp_pass (str): SMTP password for authentication.
     """
+    server = None  # Initialize server to None
     try:
         if smtp_port == "465":
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+            server = smtplib.SMTP_SSL(smtp_server, int(smtp_port))
         else:
-            server = smtplib.SMTP(smtp_server, smtp_port)
+            server = smtplib.SMTP(smtp_server, int(smtp_port))
 
-        server.set_debuglevel(0)  # Set to 0 in production
+        server.set_debuglevel(9)  # Set to 0 in production
 
         if smtp_user and smtp_pass:
             server.login(smtp_user, smtp_pass)
 
         server.sendmail(from_email, to_email, msg.as_string())
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print("Failed to send email: {}".format(e))
     finally:
-        server.quit()
+        if server:
+            server.quit()  # Only call quit() if the server object is initialized
 
 
 def main():
@@ -135,14 +137,14 @@ def main():
     smtp_user = sys.argv[9]
     smtp_pass = sys.argv[10]
 
-    # Echo to stdout - halizard redirects to log
-    print(f"Sending email from: {from_email}")
-    print(f"Sending email to: {to_email}")
-    print(f"Email Alert Subject: {subject}")
-    print(f"Email Alert Timestamp: {timestamp}")
-    print(f"Email Alert Process: {process_name}")
-    print(f"Email Alert Message Content: {message_body}")
-    print(f"Email Alert Message Hostname: {get_hostname()}")
+    # Echo to stdout - HA-Lizard redirects to log
+    print("Sending email from: {}".format(from_email))
+    print("Sending email to: {}".format(to_email))
+    print("Email Alert Subject: {}".format(subject))
+    print("Email Alert Timestamp: {}".format(timestamp))
+    print("Email Alert Process: {}".format(process_name))
+    print("Email Alert Message Content: {}".format(message_body))
+    print("Email Alert Message Hostname: {}".format(get_hostname()))
 
     # Construct and send the email
     try:
@@ -151,7 +153,7 @@ def main():
         send_email(from_email, to_email, msg, smtp_server,
                    smtp_port, smtp_user, smtp_pass)
     except Exception as e:
-        print(f"Error occurred: {e}")
+        print("Error occurred: {}".format(e))
         sys.exit(1)
 
 

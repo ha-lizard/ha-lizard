@@ -702,7 +702,7 @@ function status() {
   local MY_ROLE
   MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
 
-  service_execute "${PROG_NAME} status" &>/dev/null
+  service_execute "${PROG_NAME}" "status" &>/dev/null
   local SERVICE_STATUS_RESULT=$?
   case $SERVICE_STATUS_RESULT in
   0)
@@ -719,7 +719,7 @@ function status() {
     ;;
   esac
 
-  service_execute "${PROG_NAME}-watchdog status" &>/dev/null
+  service_execute "${PROG_NAME}-watchdog" "status" &>/dev/null
   local WATCHDOG_STATUS_RESULT=$?
   case $WATCHDOG_STATUS_RESULT in
   0)
@@ -886,7 +886,7 @@ function cluster_status() {
   local MY_ROLE
   MY_ROLE=$(awk -F ':' '{print $1}' /etc/xensource/pool.conf)
 
-  service_execute "${PROG_NAME}" status &>/dev/null
+  service_execute "${PROG_NAME}" "status" &>/dev/null
   local SERVICE_STATUS_RESULT=$?
   local HA_SERVICE_STATUS
   case $SERVICE_STATUS_RESULT in
@@ -920,7 +920,7 @@ function cluster_status() {
     ;;
   esac
 
-  service_execute "${PROG_NAME}"-watchdog status &>/dev/null
+  service_execute "${PROG_NAME}-watchdog" "status" &>/dev/null
   local WATCHDOG_STATUS_RESULT=$?
   local HA_WATCHDOG_STATUS
   case $WATCHDOG_STATUS_RESULT in
@@ -1328,69 +1328,6 @@ function yellow() {
 function normal() {
   echo -e -n '\E[0m'
 }
-
-function make_box() {
-  local STRING="$*"
-  local CHAR_HORIZONTAL="-"
-  local CHAR_VERTICAL="|"
-  local NUM_ROWS
-  NUM_ROWS=$(echo "$*" | wc -l)
-
-  if [ "$NUM_ROWS" -eq 1 ]; then
-    local STRING_LEN=${#STRING}
-  else
-    #Find the length of the longest line
-    local LENGTH=0
-    RESTORE_IFS=$IFS
-    IFS=$'\n'
-    for line in "${STRING[@]}"; do
-      local NEW_LENGTH=${#line}
-      if [ "$NEW_LENGTH" -gt "$LENGTH" ]; then
-        LENGTH=$NEW_LENGTH
-      fi
-    done
-
-    IFS=$RESTORE_IFS
-    local STRING_LEN=$LENGTH
-  fi
-
-  local HORIZ_LEN=$((STRING_LEN + 4))
-
-  #create the top border
-  local COUNT=0
-  while [ $COUNT -lt $HORIZ_LEN ]; do
-    echo -n "$CHAR_HORIZONTAL"
-    COUNT=$((COUNT + 1))
-  done
-  echo
-
-  #create the rows
-  if [ "$NUM_ROWS" -eq 1 ]; then
-    echo "$CHAR_VERTICAL $* $CHAR_VERTICAL"
-  elif [ "$NUM_ROWS" -gt 1 ]; then
-    RESTORE_IFS=$IFS
-    IFS=$'\n'
-    for line in "${STRING[@]}"; do
-      NUM_SPACES=$((HORIZ_LEN - ${#line} - 4))
-      COUNT=0
-      SPACE=" "
-      while [ $NUM_SPACES -gt $COUNT ]; do
-        SPACE="$SPACE "
-        COUNT=$((COUNT + 1))
-      done
-      printf "%s\n" "$CHAR_VERTICAL $line$SPACE$CHAR_VERTICAL"
-    done
-    IFS=$RESTORE_IFS
-  fi
-
-  #create the bottom border
-  COUNT=0
-  while [ $COUNT -lt $HORIZ_LEN ]; do
-    echo -n "$CHAR_HORIZONTAL"
-    COUNT=$((COUNT + 1))
-  done
-  echo
-} #End function make_box
 
 if [ ${TIMEOUT} = "true" ]; then
   status
