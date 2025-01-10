@@ -370,32 +370,31 @@ function watch_proc() {
   fi
 } #End Function watch_proc
 
-############################################
-# Function - get list of host UUIDs
-# for each host in this pool
-# populate global array $HOST_LIST_UUID
-# Optional Passed in arg1 = enabled
-# if used, omits hosts in maintenance mode
-############################################
+# Gets a list of all host UUIDs in the pool and populate global array $HOST_LIST_UUID
+# If the first argument is set to "enabled", only hosts with enabled=true (not in maintenance mode) are returned
+# On failure to get the list of hosts, an email is sent and the function logs an error
 function get_pool_host_list() {
-
+  # Clear previous list of host UUIDs
   unset HOST_LIST_UUID
+
+  # Check the first argument to determine if we need to filter by 'enabled'
   if [ "$1" = "enabled" ]; then
     log "$FUNCNAME" "enabled flag set - returning only hosts with enabled=true"
-    #HOST_LIST_UUID=$($XE host-list enabled=true | grep -e uuid  | awk -F ": " '{print $2}')
-    mapfile -t HOST_LIST_UUID < <($XE host-list enabled=true --minimal | tr "," "\n")
+    # Get the list of all hosts with 'enabled=true' filter
+    mapfile -t HOST_LIST_UUID < <(xe_host_list enabled=true)
   else
-    #HOST_LIST_UUID=$($XE host-list | grep -e uuid  | awk -F ": " '{print $2}')
-    mapfile -t HOST_LIST_UUID < <($XE host-list enabled=true --minimal | tr "," "\n")
+    # Get the list of all hosts
+    mapfile -t HOST_LIST_UUID < <(xe_host_list)
   fi
 
-  if [ -z "$HOST_LIST_UUID" ]; then
-    log "$FUNCNAME" "found no host machines in pool - major error"
+  # Check if the list is empty and log an error if no hosts are found
+  if [ ${#HOST_LIST_UUID[@]} -eq 0 ]; then
+    log "$FUNCNAME" "Found no host machines in pool - major error"
     email "$FUNCNAME" "Failed to get list of hosts in this pool"
   else
-    log "$FUNCNAME" "returned $HOST_LIST_UUID"
+    log "$FUNCNAME" "returned ${HOST_LIST_UUID[*]}"
   fi
-} #End function get_pool_host_list
+}
 
 ############################################
 # Function - get list of host IP addresses
@@ -584,87 +583,90 @@ function vm_state_check() {
 # appliance or vm if HA is enabled in config file
 ###############################################
 function vm_mon() {
-  local THIS_POOL_UUID
-  THIS_POOL_UUID=$(xe pool-list --minimal)
+  local retval=0
+
   case $OP_MODE in
   1)
     log "$FUNCNAME" "ha-lizard in operating mode 1 - managing pool appliances"
-    VAPP_LIST=$($XE appliance-list | grep -e uuid | awk -F ": " '{print $2}')
-    VAPP_COUNT=${#VAPP_LIST[@]}
-    log "$FUNCNAME" "$VAPP_COUNT vapps found: ${VAPP_LIST[*]}"
 
-    for UUID in "${VAPP_LIST[@]}"; do
-      log "$FUNCNAME" "Checking if ha_lizard is enabled for UUID: $UUID"
-      if ha_disabled "$UUID" != 1; then
-        if vm_state_check "$UUID"; then
-          log "$FUNCNAME" "NO VMs down in appliance $UUID"
+    ##############################
+    # Get the list of appliances
+    ##############################
+    local vapp_list
+    mapfile -t vapp_list < <(xe_appliance_list)
+    local vapp_count=${#vapp_list[@]}
+    log "$FUNCNAME" "$vapp_count vapps found: ${vapp_list[*]}"
+
+    ##############################
+    # Check and start vapps if needed
+    ##############################
+    for uuid in "${vapp_list[@]}"; do
+      log "$FUNCNAME" "Checking if ha_lizard is enabled for UUID: $uuid"
+      if ha_disabled "$uuid" != 1; then
+        if vm_state_check "$uuid"; then
+          log "$FUNCNAME" "NO VMs down in appliance $uuid"
         else
-          log "$FUNCNAME" "HA enabled for UUID: $UUID - attempting to start vapp"
-          email "$FUNCNAME" "SERVER $HOSTNAME: Some VMs down. HA enabled for UUID: $UUID - attempting to start vapp"
+          log "$FUNCNAME" "HA enabled for UUID: $uuid - attempting to start vapp"
+          email "$FUNCNAME" "SERVER $HOSTNAME: Some VMs down. HA enabled for UUID: $uuid - attempting to start vapp"
           sleep 15
-          vm_state_check "$UUID"
+          vm_state_check "$uuid"
         fi
       else
-        log "$FUNCNAME" "HA disabled for UUID: $UUID"
+        log "$FUNCNAME" "HA disabled for UUID: $uuid"
       fi
     done
     ;;
   2)
     log "$FUNCNAME" "ha-lizard is operating mode 2 - managing pool VMs"
     ##############################
-    # V2.1.3 - added restriction
-    # is-a-snapshot=false to avoid
-    # attempts to start a snapshot
-    # created for a backup
-    ###############################
-    local POOL_VM_LIST
-    mapfile -t POOL_VM_LIST < <($XE vm-list is-control-domain=false is-a-snapshot=false --minimal | tr "," "\n")
-    log "$FUNCNAME" "Retrieved list of VMs for this poll: ${POOL_VM_LIST[*]}"
-    log "$FUNCNAME" "Removing Control Domains from VM list"
-    VM_LIST_NO_CNTRL_DOM=$POOL_VM_LIST
-    log "$FUNCNAME" "VM list returned = ${VM_LIST_NO_CNTRL_DOM[*]}"
+    # V2.1.3 - added restriction is-a-snapshot=false to avoid attempts to start a snapshot created for a backup
+    # Get the list of VMs for the pool, excluding control domains and snapshots
+    ##############################
+    local vm_list
+    mapfile -t vm_list < <(xe_vm_list)
+    log "$FUNCNAME" "Retrieved list of VMs for this pool: ${vm_list[*]}"
 
-    #############################
-    # Check power state of VMs
-    # and create array with halted
-    #############################
-    for i in "${VM_LIST_NO_CNTRL_DOM[@]}"; do
+    ##############################
+    # Check power state of each VM and handle them accordingly
+    ##############################
+    for i in "${vm_list[@]}"; do
       vm_state "$i"
       case $VM_STATE in
       running)
         log "$FUNCNAME" "VM $i state = $VM_STATE"
-        validate_vm_home_pool "$i" "${THIS_POOL_UUID}"
+        validate_vm_home_pool "$i" "${POOL_UUID}"
         ;;
       suspended)
         log "$FUNCNAME" "VM $i state = $VM_STATE"
         ;;
       halted)
         log "$FUNCNAME" "VM $i state = $VM_STATE"
-        ###########################
-        # Check if GLOBAL_VM_HA set
-        ###########################
+
+        ##############################
+        # Check if GLOBAL_VM_HA is enabled for halted VMs
+        ##############################
         if [ "$GLOBAL_VM_HA" = "1" ]; then
           log "$FUNCNAME" "GLOBAL_VM_HA is enabled. Adding VM: $i to list of failed VMs on this run."
           HALTED_VMS+=("$i")
         elif [ "$GLOBAL_VM_HA" = "0" ]; then
-          #########################
-          # Check if HA is enabled
-          #########################
-          if VM_HA_ON=$($XE vm-param-get uuid="$i" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME"); then
+          ##############################
+          # Check if HA is enabled for each VM
+          ##############################
+          local vm_ha_on
+
+          if ! vm_ha_on=$(xe_vm_param_get uuid="$i" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME"); then
             log "$FUNCNAME" "Error retrieving ha-lizard-enabled value for VM: $i. Check if ha-lizard-enabled is set"
             email "$FUNCNAME" "Error retrieving ha-lizard-enabled value for VM: $i. Check if ha-lizard-enabled is set"
           fi
-
-          if [[ $VM_HA_ON = "false" ]]; then
+          if [ "$vm_ha_on" = "false" ]; then
             log "$FUNCNAME" "HA is disabled for halted VM: $i. Not attempting to start VM."
-          elif [[ $VM_HA_ON = "true" ]]; then
+          elif [ "$vm_ha_on" = "true" ]; then
             log "$FUNCNAME" "HA is enabled for halted VM: $i"
             HALTED_VMS+=("$i")
           else
-            log "$FUNCNAME" "ha-lizard-enabled for VM $i in unknown state or not set while GLOBAL_VM_HA is set to 0 which requires ha-lizard-enabled=true/false. Check configuration!"
+            log "$FUNCNAME" "ha-lizard-enabled for VM $i in unknown state. Check configuration!"
             email "$FUNCNAME" "ha-lizard-enabled for VM $i in unknown state. Check configuration!"
           fi
-
         else
           log "$FUNCNAME" "GLOBAL_VM_HA in unknown state - check configuration file!"
         fi
@@ -672,123 +674,177 @@ function vm_mon() {
       esac
     done
 
-    local NUM=${#HALTED_VMS[*]}
-    log "$FUNCNAME" "${#HALTED_VMS[*]} Eligible Halted VMs found"
-    if [ "$NUM" -gt "0" ]; then
+    ##############################
+    # Check the number of halted VMs
+    ##############################
+    local num_halted_vms=${#HALTED_VMS[@]}
+    log "$FUNCNAME" "$num_halted_vms Eligible Halted VMs found"
+
+    if [ "$num_halted_vms" -gt 0 ]; then
       log "$FUNCNAME" "Halted VMs found: ${HALTED_VMS[*]}"
       log "$FUNCNAME" "Attempting to start VMs in halted state"
+
+      ##############################
+      # Attempt to start each halted VM
+      ##############################
       for j in "${HALTED_VMS[@]}"; do
-        if ! validate_vm_safe_to_start_here "$j" "${THIS_POOL_UUID}"; then
+        # Check if it's safe to start the VM here
+        if ! validate_vm_safe_to_start_here "$j" "${POOL_UUID}"; then
           continue
         fi
 
         (
-          VM_NAME=$($XE vm-param-get uuid="$j" param-name=name-label)
-          log "$FUNCNAME" "Starting VM: $VM_NAME UUID: $j"
-          email "$FUNCNAME" "Starting VM: $VM_NAME UUID: $j"
-          if [ "$HOST_SELECT_METHOD" -eq "1" ]; then
+          # Get the name of the VM
+          local vm_name
+          vm_name=$(xe_vm_param_get uuid="$j" param-name=name-label)
+
+          # Log and send email notification about VM start
+          log "$FUNCNAME" "Starting VM: $vm_name UUID: $j"
+          email "$FUNCNAME" "Starting VM: $vm_name UUID: $j"
+
+          ##############################
+          # Check host select method and start VM accordingly
+          ##############################
+          if [ "$HOST_SELECT_METHOD" -eq 1 ]; then
             log "$FUNCNAME" "HOST_SELECT_METHOD set to [ $HOST_SELECT_METHOD ] - starting VM"
             xe vm-start uuid="$j"
-            RETVAL=$?
+            retval=$?
           else
             log "$FUNCNAME" "HOST_SELECT_METHOD set to [ $HOST_SELECT_METHOD ] - checking for a healthy host"
             ###########################################
-            ## Version 2.1 - select host based on
-            ## health monitor
-            ## randomize the list of available hosts
-            ## to spread the load
+            ## Version 2.1 - Select host based on health monitor
+            ## Randomize the list of available hosts to spread the load.
+            ##
+            ## This process ensures that hosts are selected randomly to balance the load evenly.
             ###########################################
-            mapfile -t HOST_SELECT_LIST_RAW < <($XE host-list enabled=true --minimal | tr ',' '\n')
-            local HOST_SELECT_LIST=()
-            for available_host in "${HOST_SELECT_LIST_RAW[@]}"; do
-              local SUCCESS=false
-              while [ $SUCCESS = false ]; do
-                # Generate random index without using unnecessary $() syntax
-                local THIS_INDEX=$((RANDOM % 4095))
-                log "$FUNCNAME" "This host [ $available_host ] start on serial [ $THIS_INDEX ]"
-                if [ -z "${HOST_SELECT_LIST[$THIS_INDEX]}" ]; then
-                  local HOST_SELECT_LIST[THIS_INDEX]=$available_host
-                  SUCCESS=true
+
+            # Fetch the list of enabled hosts using the new xe_host_list function
+            # This retrieves the UUIDs of all hosts that are enabled in the pool
+            mapfile -t host_select_list_raw < <(xe_host_list enabled=true)
+
+            # Declare an empty array to store the selected hosts
+            local host_select_list=()
+
+            # Loop over each host UUID in the raw list of available hosts
+            for available_host in "${host_select_list_raw[@]}"; do
+              # Initialize a flag to track if the host was successfully added to the selection list
+              local success=false
+
+              # Continue trying until the host is successfully added to the list
+              while [ "$success" = false ]; do
+                # Generate a random index (between 0 and 4094) to select a random position in the list
+                # The $((RANDOM % 4095)) ensures the index stays within the allowed range
+                local this_index=$((RANDOM % 4095))
+
+                # Log the attempt to select the host and the chosen index
+                log "$FUNCNAME" "This host [ $available_host ] starts on serial [ $this_index ]"
+
+                # If the randomly selected index is empty, add the host at that index
+                if [ -z "${host_select_list[$this_index]}" ]; then
+                  # Store the host UUID at the randomly selected index
+                  local host_select_list["$this_index"]=$available_host
+                  # Mark the host as successfully added to the list
+                  success=true
                 fi
               done
             done
 
-            ##############################
-            ## If no hosts returned, set
-            ## 2 capture this event
-            ##############################
-            if [ ${#HOST_SELECT_LIST} -lt 1 ]; then
-              RETVAL=2
+            # If no hosts returned, set 2 capture this event
+            if [ ${#host_select_list[@]} -lt 1 ]; then
+              retval=2
             fi
 
-            for start_on_this_host in "${HOST_SELECT_LIST[@]}"; do
-              local THIS_HOST_HEALTH
-              THIS_HOST_HEALTH=$($XE host-param-get uuid="$start_on_this_host" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
-              log "$FUNCNAME" "Host [ $start_on_this_host ] health status = [ $THIS_HOST_HEALTH ]"
-              if [ "$THIS_HOST_HEALTH" != "failed" ]; then
+            # Loop over each selected host in the randomized list
+            for start_on_this_host in "${host_select_list[@]}"; do
+              # Fetch the health status of the current host
+              # using the 'host-param-get' function to retrieve the health parameter
+              local this_host_health
+              this_host_health=$(xe_host_param_get uuid="$start_on_this_host" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+
+              # Log the host health status
+              log "$FUNCNAME" "Host [ $start_on_this_host ] health status = [ $this_host_health ]"
+
+              # If the host is healthy, try to start the VM on this host
+              if [ "$this_host_health" != "failed" ]; then
+                # Start the VM on the selected host
                 VM_START_RESULT=$(xe vm-start uuid="$j" on="$start_on_this_host" 2>&1)
-                RETVAL=$?
-                log "$FUNCNAME" "VM start exit result = [ $RETVAL ]"
-                log "$FUNCNAME" "VM start returned  messages = [ $VM_START_RESULT ]"
-                if [ $RETVAL -ne 0 ]; then
+                retval=$?
+
+                # Log the result of the VM start attempt
+                log "$FUNCNAME" "VM start exit result = [ $retval ]"
+                log "$FUNCNAME" "VM start returned messages = [ $VM_START_RESULT ]"
+
+                # If the VM failed to start, check if it's a VDI backend failure
+                if [ $retval -ne 0 ]; then
                   if [[ $VM_START_RESULT == *SR_BACKEND_FAILURE_46* ]]; then
                     log "$FUNCNAME" "$VM_START_RESULT"
+
+                    # Attempt to reset the VDI and try to start the VM again
                     reset_vm_vdi "$j"
-                    local VDI_RESET_SUCCESS=$?
-                    if [ $VDI_RESET_SUCCESS -eq 0 ]; then
+                    local vdi_reset_success=$?
+                    if [ $vdi_reset_success -eq 0 ]; then
                       log "$FUNCNAME" "Reattempting vm [ $j ] start"
                       xe vm-start uuid="$j" on="$start_on_this_host"
-                      RETVAL=$?
-                      if [ $RETVAL -ne 0 ]; then
+                      retval=$?
+
+                      # If the VM still fails to start, continue to the next host
+                      if [ $retval -ne 0 ]; then
                         continue
                       else
                         break
                       fi
                     else
+                      # If VDI reset fails, continue to the next host
                       continue
                     fi
                   fi
                 else
+                  # If the VM started successfully, break out of the loop
                   break
                 fi
               else
+                # If the host is not healthy, continue to the next host
                 continue
               fi
             done
 
           fi
 
-          if [ "$RETVAL" -eq 0 ]; then
+          # Check if the VM start was successful or failed
+          if [ "$retval" -eq 0 ]; then
             log "$FUNCNAME" "Successfully started VM: $VM_NAME UUID: $j"
             email "$FUNCNAME" "Successfully started VM: $VM_NAME UUID: $j"
-          elif [ "$RETVAL" -eq 2 ]; then
+          elif [ "$retval" -eq 2 ]; then
+            # No host available to start the VM
             log "$FUNCNAME" "No host available to start VM"
           else
+            # Error starting the VM
             log "$FUNCNAME" "Error starting failed VM: $VM_NAME UUID: $j"
             email "$FUNCNAME" "Error starting failed VM: $VM_NAME UUID: $j"
+
             #############################
-            # Make sure we are not trying
-            # to start a halted VM that
-            # xen shows as running. Clear
-            # condition so VM can start
-            # on next spawning of main logic
+            # Check if the VM is halted and its power state is "halted"
+            # If it is, we need to clear the state so the VM can start next time.
             #############################
-            local THIS_HOST_CURRENT_XAPI_POWER_STATE
-            THIS_HOST_CURRENT_XAPI_POWER_STATE=$($XE vm-param-get uuid="$j" param-name=power-state)
-            if [ "$THIS_HOST_CURRENT_XAPI_POWER_STATE" = "halted" ]; then
-              local VM_RUNNING_ON_THIS_HOST
-              VM_RUNNING_ON_THIS_HOST=$($LIST_DOMAINS | grep -c "$j")
-              if [ "$VM_RUNNING_ON_THIS_HOST" -gt 0 ]; then
-                log "$FUNCNAME" "VM [ $j ] reported as running. Should be halted."
-                local VM_DOM_TO_DESTROY
-                VM_DOM_TO_DESTROY=$($LIST_DOMAINS | grep "$j" | awk '{print $1}')
+            local this_host_current_xapi_power_state
+            this_host_current_xapi_power_state=$(xe_vm_param_get uuid="$j" param-name=power-state)
+
+            if [ "$this_host_current_xapi_power_state" = "halted" ]; then
+              # Check if the VM is currently running on any host
+              local vm_running_on_this_host
+              vm_running_on_this_host=$($LIST_DOMAINS | grep -c "$j")
+
+              if [ "$vm_running_on_this_host" -gt 0 ]; then
+                log "$FUNCNAME" "VM [ $j ] reported as running but should be halted."
+
+                # Get the domain ID of the VM
+                local vm_dom_to_destroy
+                vm_dom_to_destroy=$($LIST_DOMAINS | grep "$j" | awk '{print $1}')
                 ##########################
-                # best effort - destroy
-                # domains. No exit status
-                # tracking
+                # Best-effort to destroy VM domains without tracking exit status
                 ##########################
-                log "$FUNCNAME" "Cleaning up vm [ $j ] not expected to be running here"
-                $XL_EXEC destroy "$VM_DOM_TO_DESTROY"
+                log "$FUNCNAME" "Cleaning up VM [ $j ] that is not expected to be running here."
+                $XL_EXEC destroy "$vm_dom_to_destroy"
               fi
             fi
           fi
@@ -964,26 +1020,34 @@ function promote_slave() {
 } #End function promote_slave
 
 ###########################################
-# Function - Get VMs on Host - populates
-# $GET_VMS_ON_HOST with array of vm
-# UUIDs that belong to the passed in host UUID
+# Function - Get VMs on Host
+# Populates the global array GET_VMS_ON_HOST
+# with the list of VM UUIDs that belong to
+# the passed-in host UUID.
 #
-# args passed in:
+# Args passed in:
 # $1 = host UUID
 #
-# return = global array (GET_VMS_ON_HOST)
-#
+# Return:
+# The global array GET_VMS_ON_HOST is populated with the VM UUIDs.
 ###########################################
 function get_vms_on_host() {
-  HOST_VM_LIST=$($XE vm-list is-control-domain=false resident-on="$1" | grep -e uuid | awk -F ": " '{print $2}')
-  if [ -z "$HOST_VM_LIST" ]; then
-    log "$FUNCNAME" "No VMs found on host: $1"
-    GET_VMS_ON_HOST=$HOST_VM_LIST
-  else
-    log "$FUNCNAME" "Returned $HOST_VM_LIST"
-    GET_VMS_ON_HOST=$HOST_VM_LIST
+  # Validate the host UUID
+  if ! validate_uuid "$1"; then
+    log "$FUNCNAME" "Invalid host UUID: $1"
+    return 1
   fi
-} #End function get_vms_on_host
+
+  # Use mapfile to populate the global array with VM UUIDs on the host
+  mapfile -t GET_VMS_ON_HOST < <(xe_vm_list resident-on="$1")
+
+  # If no VMs are found, log the message
+  if [ ${#GET_VMS_ON_HOST[@]} -eq 0 ]; then
+    log "$FUNCNAME" "No VMs found on host: $1"
+  else
+    log "$FUNCNAME" "Returned ${#GET_VMS_ON_HOST[@]} VMs on host: $1"
+  fi
+}
 
 ###########################################
 # Function - Get VMs on Host Local - populates
@@ -1074,107 +1138,109 @@ function update_hour() {
 function update_day() {
   date +%e >/"$STATE_PATH"/time_hour
 }
-
 ##############################################
 # Function - Write Pool State. Writes list
 # of VMs per host and associated vm state
-# to local state files
-# No args passed in
-#############################################
+# to local state files.
+# No args passed in.
+##############################################
 function write_pool_state() {
-  ####################################
-  # Get UUID of Master Host and write
-  # to disk.
-  ####################################
-  MASTER_UUID=$($XE pool-list | grep -e master | awk -F ": " '{print $2}')
-  if [ "$MASTER_UUID" ]; then
-    log "$FUNCNAME" "MASTER UUID found: $MASTER_UUID"
-    if echo "$MASTER_UUID" >"$STATE_PATH"/master_uuid; then
-      log "$FUNCNAME" "MASTER UUID: $MASTER_UUID written to local state storage"
+  # Get UUID of Master Host and write  to disk using the xe wrapper function
+  local master_uuid
+  master_uuid=$(xe_pool_master_uuid)
+
+  if [ -n "$master_uuid" ]; then
+    log "$FUNCNAME" "MASTER UUID found: $master_uuid"
+    if echo "$master_uuid" >"$STATE_PATH"/master_uuid; then
+      log "$FUNCNAME" "MASTER UUID: $master_uuid written to local state storage"
     else
-      log "$FUNCNAME" "Error: Failed to write MASTER UUID: $MASTER_UUID to local state storage"
+      log "$FUNCNAME" "Error: Failed to write MASTER UUID: $master_uuid to local state storage"
     fi
   else
     log "$FUNCNAME" "Error: Could not retrieve Master UUID - not updating state file"
   fi
 
-  ####################################
-  # Get UUID of all VMs running on
-  # each host in this pool and write
-  # to disk. Filename = host.UUID.vmlist
-  # contents per line:
-  # uuid:name-label:power-state
-  #####################################
-  local hosts
-  mapfile -t hosts < <($XE host-list --minimal | tr "," "\n")
-  if [[ ${#hosts[*]} -gt 0 ]]; then
-    for h in "${hosts[@]}"; do
-      log "$FUNCNAME" "Calling function get_vms_on_host for UUID: $h"
-      get_vms_on_host "$h"
+  # Get the list of all host UUIDs and their associated VMs using the xe wrapper function
+  local host_uuids
+  mapfile -t host_uuids < <(xe_host_list)
 
-      log "$FUNCNAME" "Writing VM array to local state file host.$h.vmlist.uuid_array"
-      $ECHO "${GET_VMS_ON_HOST[*]}" >"$STATE_PATH"/host."$h".vmlist.uuid_array
+  if [ ${#host_uuids[@]} -gt 0 ]; then
+    for host_uuid in "${host_uuids[@]}"; do
+      log "$FUNCNAME" "Getting VM list for host UUID: $host_uuid"
+      get_vms_on_host "$host_uuid"
+
+      # Write the VM list to the state file
+      log "$FUNCNAME" "Writing VM list for host $host_uuid to local state file: host.$host_uuid.vmlist"
+      echo "${GET_VMS_ON_HOST[*]}" >"$STATE_PATH"/host."$host_uuid".vmlist
     done
   else
-    log "$FUNCNAME" "Error getting VM list for Host: $h"
+    log "$FUNCNAME" "Error: No VM found resident on Host: $host_uuid"
   fi
 
   ################################################
   # Get autopromote_uuid from pool configuration
   # and write to state file autopromote_uuid
   ################################################
-  local POOL_UUID
-  POOL_UUID=$($XE pool-list --minimal)
-  local AUTO_UUID
-  AUTO_UUID=$($XE pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=autopromote_uuid)
-  log "pool autopromote_uuid = [$AUTO_UUID]"
-  if [ ${#AUTO_UUID} -eq 36 ] || [ "${AUTO_UUID}" = "none_available" ]; then
-    log "$FUNCNAME" "Pool autopromote_uuid=$AUTO_UUID"
+  local auto_uuid
+  auto_uuid=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key=autopromote_uuid)
+
+  log "$FUNCNAME" "Pool autopromote_uuid = [$auto_uuid]"
+
+  if validate_uuid "$auto_uuid" || [[ "$auto_uuid" == "none_available" ]]; then
+    log "$FUNCNAME" "Pool autopromote_uuid=$auto_uuid"
   else
     log "$FUNCNAME" "Error retrieving autopromote_uuid from pool configuration"
     email "$FUNCNAME" "Error retrieving autopromote_uuid from pool configuration"
   fi
 
   if [ -e "$STATE_PATH"/autopromote_uuid ]; then
-    local CURR_UUID
-    CURR_UUID=$($CAT "$STATE_PATH"/autopromote_uuid)
+    local curr_uuid
+    curr_uuid=$(cat "$STATE_PATH"/autopromote_uuid)
   else
     touch "$STATE_PATH"/autopromote_uuid
-    CURR_UUID=
+    curr_uuid=
   fi
 
-  if [[ $CURR_UUID != "$AUTO_UUID" ]]; then
-    log "$FUNCNAME" "autopromote_uuid has changed - updating state file: $STATE_PATH/autopromote_uuid with uuid: $AUTO_UUID"
-    $ECHO "$AUTO_UUID" >"$STATE_PATH"/autopromote_uuid
+  if [[ $curr_uuid != "$auto_uuid" ]]; then
+    log "$FUNCNAME" "autopromote_uuid has changed - updating state file"
+    echo "$auto_uuid" >"$STATE_PATH"/autopromote_uuid
   else
     log "$FUNCNAME" "autopromote_uuid unchanged - not updating"
   fi
 
   ################################################
-  # Check if ha-lizard is enabled for pool and write
+  # Check if HA-Lizard is enabled for pool and write
   # to state file
   ################################################
   if check_ha_enabled; then
-    $ECHO true >"$STATE_PATH"/ha_lizard_enabled
+    echo true >"$STATE_PATH"/ha_lizard_enabled
   else
-    $ECHO false >"$STATE_PATH"/ha_lizard_enabled
+    echo false >"$STATE_PATH"/ha_lizard_enabled
   fi
 
   ################################################
   # Find the UUID for this host and write to disk
   ################################################
-  if THIS_HOST_UUID=$($XE host-list hostname="$(hostname)" --minimal); then
-    $ECHO "$THIS_HOST_UUID" >"$STATE_PATH"/local_host_uuid
+  local this_host_uuid
+  this_host_uuid=$(xe_host_list hostname="$(hostname)")
+
+  if [ -n "$this_host_uuid" ]; then
+    echo "$this_host_uuid" >"$STATE_PATH"/local_host_uuid
   else
-    $ECHO 1 >"$STATE_PATH"/local_host_uuid
+    echo 1 >"$STATE_PATH"/local_host_uuid
   fi
 
   ################################################
-  # Get number of hosts in pool and write to disk
+  # Get number of enabled hosts in pool and write to disk
   ################################################
-  if POOL_NUM_HOSTS=$($XE host-list enabled=true params=name-label | grep -c name-label); then
-    log "$FUNCNAME" "Pool contains $POOL_NUM_HOSTS hosts. Writing to $STATE_PATH/pool_num_hosts"
-    $ECHO "$POOL_NUM_HOSTS" >"$STATE_PATH"/pool_num_hosts
+  mapfile -t host_uuids < <(xe_host_list enabled=true)
+
+  # Get the number of hosts
+  local pool_num_hosts=${#host_uuids[@]}
+
+  if [ "$pool_num_hosts" -gt 0 ]; then
+    log "$FUNCNAME" "Pool contains $pool_num_hosts hosts. Writing to $STATE_PATH/pool_num_hosts"
+    echo "$pool_num_hosts" >"$STATE_PATH"/pool_num_hosts
   else
     log "$FUNCNAME" "Failed to detect number of hosts in pool."
     email "$FUNCNAME" "Failed to detect number of hosts in pool."
@@ -1185,7 +1251,7 @@ function write_pool_state() {
   ###############################################
   get_pool_host_list enabled && get_pool_ip_list "${HOST_LIST_UUID[@]}"
 
-  echo "${HOST_LIST_IP[@]}" >/"$STATE_PATH"/host_ip_list
+  echo "${HOST_LIST_IP[@]}" >"$STATE_PATH"/host_ip_list
   log "$FUNCNAME" "Host IP List = ${HOST_LIST_IP[*]}"
 
   ##############################################
@@ -1194,23 +1260,22 @@ function write_pool_state() {
   write_status_report
 
   ##############################################
-  # describe pool - irrespective of whether
-  # host is enabled. Store each member of pool
-  # as UUID:IP:<MASTER|SLAVE>
+  # Describe pool - irrespective of whether host is enabled.
+  # TODO: this don't include the <MASTER|SLAVE> status of each host, only UUID and IP
+  # Store each member of pool as UUID:IP:<MASTER|SLAVE>
   ##############################################
-  local LIST_ALL_HOST_UUID
-  mapfile -t LIST_ALL_HOST_UUID < <($XE host-list --minimal | tr "," "\n")
-  POOL_MEMBER_LIST=""
-  for host_to_describe in "${LIST_ALL_HOST_UUID[@]}"; do
-    local THIS_UUID_IP
-    THIS_UUID_IP=$($XE host-param-get uuid="$host_to_describe" param-name=address)
-    POOL_MEMBER_LIST+="${host_to_describe}:${THIS_UUID_IP}\n"
+  local all_host_uuids
+  mapfile -t all_host_uuids < <(xe_host_list | sort)
+
+  local pool_member_list=""
+  for host_uuid in "${all_host_uuids[@]}"; do
+    local this_uuid_ip
+    this_uuid_ip=$(xe_host_param_get uuid="$host_uuid" param-name=address)
+    pool_member_list+="$host_uuid:$this_uuid_ip\n"
   done
 
-  POOL_MEMBER_LIST=$(echo "$POOL_MEMBER_LIST" | sort)
-  echo -e "$POOL_MEMBER_LIST" >/"$STATE_PATH"/host_uuid_ip_list
-
-} #End function write_pool_state
+  echo -e "$pool_member_list" >"$STATE_PATH"/host_uuid_ip_list
+}
 
 ################################################
 # Function - Check Slave Status - checks the
@@ -1254,7 +1319,7 @@ function check_slave_status() {
   # Remove Master IP from array
   ###############################
   local MASTER
-  MASTER=$($XE pool-list | grep -e master | awk -F ": " '{print $2}')
+  MASTER=$(xe_pool_master_uuid)
   for i in "${HOST_LIST_UUID[@]}"; do
     if [ "$i" = "$MASTER" ]; then
       log "$FUNCNAME" "Removing Master UUID from list of Hosts"
@@ -1517,7 +1582,7 @@ function check_slave_status() {
       # Get list of SRs on failed host
       #################################
       local HOST_NAME_LABEL
-      HOST_NAME_LABEL=$($XE host-list uuid="$UUID_THIS_RUN" | grep -e "name-label ( RW)" | awk -F ": " '{print $2}')
+      HOST_NAME_LABEL=$(xe_host_param_get uuid="$UUID_THIS_RUN" param-name=name-label)
       local HOST_SRS
       HOST_SRS=$($XE sr-list host="$HOST_NAME_LABEL" | grep -e "uuid ( RO)" | awk -F ": " '{print $2}')
 
@@ -1764,125 +1829,142 @@ function fence_host() {
 } #End function fence_host
 
 ##############################################
-# Function: autoselect_slave - creates an
-# ordered list of available slave UUIDs and
-# selects the top of the list as the slave
-# that will promote itself to master in the
-# event of a master host failure. Result
-# written to pool config.
+# Function: autoselect_slave
 #
-# args passed in = none
+# This function creates an ordered list of available slave UUIDs
+# and selects the top of the list as the slave that will promote
+# itself to master in the event of a master host failure. The result
+# is written to the pool configuration.
+#
+# Args:
+#   None
+#
 ##############################################
 function autoselect_slave() {
-  local THIS_HOST_UUID
-  mapfile -t THIS_HOST_UUID < <($XE host-list hostname="$HOSTNAME" --minimal | tr "," "\n")
-  if [ "$THIS_HOST_UUID" ]; then
-    log "$FUNCNAME" "This host UUID found: $THIS_HOST_UUID"
-  else
-    log "$FUNCNAME" "This host UUID not found - $FCT_NAME failed"
+  # Get the UUID of the current host (this host)
+  local this_host_uuid
+  this_host_uuid=$(xe_host_list hostname="$HOSTNAME")
+  if [ -z "$this_host_uuid" ]; then
+    log "$FUNCNAME" "This host UUID not found - $FUNC_NAME failed"
     return 1
+  else
+    log "$FUNCNAME" "This host UUID found: $this_host_uuid"
   fi
 
-  local MASTER_HOST_UUID
-  MASTER_HOST_UUID=$($XE pool-list | grep -e "master ( RO)" | awk -F ": " '{print $2}')
-  if [ "$MASTER_HOST_UUID" ]; then
-    log "$FUNCNAME" "MASTER host UUID found: $THIS_HOST_UUID"
-  else
-    log "$FUNCNAME" "MASTER host UUID not found - $FCT_NAME failed"
+  # Get the UUID of the current master host
+  local master_host_uuid
+  master_host_uuid=$(xe_pool_master_uuid)
+  if [ -z "$master_host_uuid" ]; then
+    log "$FUNCNAME" "MASTER host UUID not found - $FUNC_NAME failed"
     return 1
+  else
+    log "$FUNCNAME" "MASTER host UUID found: $master_host_uuid"
   fi
 
-  local SORTED_HOST_LIST
-  mapfile -t SORTED_HOST_LIST < <($XE host-list hostname="$HOSTNAME" --minimal | tr "," "\n" | sort)
-  for i in "${SORTED_HOST_LIST[@]}"; do
-    if [ "$i" = "$MASTER_HOST_UUID" ]; then
-      log "$FUNCNAME" "$i is Master UUID - excluding from list of available slaves"
-    elif [ "$($XE host-param-get param-name=enabled uuid="$i")" = "false" ]; then
-      log "$FUNCNAME" "Removing Slave UUID from list of Hosts - Slave: $i is disabled or in maintenance mode"
+  # Get a sorted list of all host UUIDs
+  mapfile -t sorted_host_list < <(xe_host_list | sort)
+
+  # Initialize an empty array for the available slaves
+  local autoselect_uuid_list=()
+
+  # Process the sorted host list to build the list of available slaves
+  for host_uuid in "${sorted_host_list[@]}"; do
+    if [ "$host_uuid" == "$master_host_uuid" ]; then
+      log "$FUNCNAME" "$host_uuid is Master UUID - excluding from list of available slaves"
+    elif [ "$(xe_host_param_get param-name=enabled uuid="$host_uuid")" == "false" ]; then
+      log "$FUNCNAME" "Removing Slave UUID from list of Hosts - Slave: $host_uuid is disabled or in maintenance mode"
     else
-      AUTOSELECT_UUID_LIST+=("$i")
-    fi
+      # Add eligible slave to the autoselect list
 
-    if [ -z "$i" ]; then
-      log "$FUNCNAME" "Build Array: Slave UUID ${AUTOSELECT_UUID_LIST[*]}"
+      autoselect_uuid_list+=("$host_uuid")
+      log "$FUNCNAME" "Build Array: Slave UUID ${autoselect_uuid_list[*]}"
     fi
-
   done
 
-  log "$FUNCNAME" "${#AUTOSELECT_UUID_LIST[*]} available Slave UUIDs found: ${AUTOSELECT_UUID_LIST[*]}"
-  POOL_UUID=$($XE pool-list --minimal)
-  SLAVE_NEW=${AUTOSELECT_UUID_LIST[0]}
-  SLAVE_CURRENT=$($XE pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=autopromote_uuid)
+  # Log the list of available slaves
+  log "$FUNCNAME" "${#autoselect_uuid_list[@]} available Slave UUIDs found: ${autoselect_uuid_list[*]}"
 
-  if [ ${#AUTOSELECT_UUID_LIST[@]} -gt 0 ]; then
-    if [ "$SLAVE_NEW" = "$SLAVE_CURRENT" ]; then
-      log "$FUNCNAME" "Selected Slave: $SLAVE_NEW = Current slave: $SLAVE_CURRENT - ignoring update"
+  # Get the current autopromote UUID (current slave) for the pool
+  local slave_new="${autoselect_uuid_list[0]}"
+  local slave_current
+  slave_current=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key=autopromote_uuid)
+
+  # Check if we have a new slave to promote
+  if [ ${#autoselect_uuid_list[@]} -gt 0 ]; then
+    if [ "$slave_new" == "$slave_current" ]; then
+      log "$FUNCNAME" "Selected Slave: $slave_new = Current slave: $slave_current - ignoring update"
     else
-      log "$FUNCNAME" "New autopromote slave selected - updating pool-param:autopromote_uuid with $SLAVE_NEW"
-      email "$FUNCNAME" "NOTICE: New autopromote slave selected - updating pool-param:autopromote_uuid with $SLAVE_NEW"
-      $XE pool-param-set uuid="$POOL_UUID" other-config:autopromote_uuid="$SLAVE_NEW"
+      log "$FUNCNAME" "New autopromote slave selected - updating pool-param:autopromote_uuid with $slave_new"
+      email "$FUNCNAME" "NOTICE: New autopromote slave selected - updating pool-param:autopromote_uuid with $slave_new"
+      xe_pool_other_param_set "autopromote_uuid" "$slave_new"
     fi
   else
-    log "No slaves available to become pool master"
-    SLAVE_NEW="none_available"
-    $XE pool-param-set uuid="$POOL_UUID" other-config:autopromote_uuid=$SLAVE_NEW
+    log "$FUNCNAME" "No slaves available to become pool master"
+    slave_new="none_available"
+    xe_pool_other_param_set "autopromote_uuid" "$slave_new"
   fi
-} #End function autoselect_slave
+}
+#End function autoselect_slave
 
 ################################################
-# Function: check_ha_enabled checks whether
-# ha-lizard is enabled for the pool. Expects
-# true or false. Null or other non-valid
-# values will trigger an email alert.
-# ha-lizard is toggled true/false via xencenter
-# or the cli tool - "ha-cfg status"
-# default custom pool parameter XC_FIELD_NAME
+# Function: check_ha_enabled
 #
-# args passed in = none
+# This function checks whether ha-lizard is enabled for the pool.
+# It expects a boolean value (`true` or `false`). If the value
+# is null or anything other than `true` or `false`, it will trigger
+# an email alert. The ha-lizard setting can be toggled via XenCenter
+# or the `ha-cfg status` CLI tool.
 #
-# return 0 = ha-lizard is enabled
-# return 1 = ha-lizard is disabled
-# return 2 = ha-lizard-enabled is not set or wrong
+# The check uses the custom pool parameter `XC_FIELD_NAME` to determine
+# if ha-lizard is enabled.
+#
+# Args:
+#   None
+#
+# Returns:
+#   0  - ha-lizard is enabled
+#   1  - ha-lizard is disabled
+#   2  - ha-lizard is not set or invalid value
+#   3  - error enabling the host (if host is in maintenance mode)
 ################################################
 function check_ha_enabled() {
-  local POOL_UUID
-  POOL_UUID=$($XE pool-list --minimal)
-  local HA_ENABLED
-  HA_ENABLED=$($XE pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
-  local MY_ROLE
-  MY_ROLE=$(cat /etc/xensource/pool.conf)
+  log "$FUNCNAME" "Checking if ha-lizard is enabled for pool: $POOL_UUID"
 
-  if [ -n "$POOL_UUID" ]; then
-    log "$FUNCNAME" "Checking if ha-lizard is enabled for pool: $POOL_UUID"
-  else
-    log "$FUNCNAME" "Error retrieving pool uuid while checking if ha-lizard is enabled"
-    email "$FUNCNAME" "Error retrieving pool uuid while checking if ha-lizard is enabled- major error - ha-lizard in unknown state"
-    exit 1
-  fi
+  # Retrieve ha-lizard enabled status using the xe wrapper function
+  local ha_enabled
+  ha_enabled=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
 
-  if [ -n "$HA_ENABLED" ]; then
-    case $HA_ENABLED in
+  # Retrieve the current role from the pool configuration
+  local my_role
+  my_role=$(cat /etc/xensource/pool.conf)
 
+  # Check if ha-lizard is enabled
+  if [ -n "$ha_enabled" ]; then
+    case "$ha_enabled" in
     true)
       log "$FUNCNAME" "ha-lizard is enabled"
-      log "$FUNCNAME" "checking whether maintenance mode enabled"
-      local MY_UUID
-      MY_UUID=$($XE host-list hostname="$(hostname)" --minimal)
-      local HOST_ENABLED
-      HOST_ENABLED=$($XE host-param-get uuid="$MY_UUID" param-name=enabled)
-      if [ "$HOST_ENABLED" = "true" ]; then
+      log "$FUNCNAME" "Checking whether maintenance mode is enabled"
+
+      # Retrieve the UUID of the current host and check if it is enabled
+      local this_host_uuid
+      this_host_uuid=$(xe_host_list hostname="$(hostname)")
+      local host_enabled
+      host_enabled=$(xe_host_param_get uuid="$this_host_uuid" param-name=enabled)
+
+      if [ "$host_enabled" == "true" ]; then
         return 0
       else
         log "$FUNCNAME" "Host is in maintenance mode"
-        if [ "$MY_ROLE" = "master" ]; then
+
+        # If the host is in maintenance mode and it's the master, enable it
+        if [ "$my_role" == "master" ]; then
           log "$FUNCNAME" "Master cannot be in maintenance mode - enabling host"
-          $XE host-enable uuid="$MY_UUID"
-          RETVAL=$?
-          if [ $RETVAL -eq 0 ]; then
-            log "$FUNCNAME" "Host [ $MY_UUID ] has been enabled"
+
+          if xe host-enable uuid="$this_host_uuid"; then
+            log "$FUNCNAME" "Host [ $this_host_uuid ] has been enabled"
             return 0
           else
-            log "$FUNCNAME" "Failed to enable host [ $MY_UUID ]"
+            log "$FUNCNAME" "Failed to enable host [ $this_host_uuid ]"
             return 3
           fi
         else
@@ -1896,18 +1978,17 @@ function check_ha_enabled() {
       return 1
       ;;
     *)
-      log "$FUNCNAME" "ha-lizard-enabled should be 'true' or 'false', pool value returned = $HA_ENABLED"
-      email "$FUNCNAME" "ha-lizard-enabled should be 'true' or 'false', pool value returned = $HA_ENABLED"
+      log "$FUNCNAME" "Invalid value for ha-lizard-enabled. Expected 'true' or 'false', but got: $ha_enabled"
+      email "$FUNCNAME" "Invalid value for ha-lizard-enabled. Expected 'true' or 'false', but got: $ha_enabled"
       return 2
       ;;
     esac
-
   else
-    log "$FUNCNAME" "Error retrieving pool uuid while checking if ha-lizard is enabled"
-    email "$FUNCNAME" "Error retrieving pool uuid while checking if ha-lizard is enabled- major error - ha-lizard-enabled: no value"
+    log "$FUNCNAME" "Error retrieving pool UUID while checking if ha-lizard is enabled"
+    email "$FUNCNAME" "Error retrieving pool UUID while checking if ha-lizard is enabled - major error - ha-lizard-enabled: no value"
     return 2
   fi
-} # End function check_ha_enabled
+}
 
 #############################################
 # Function check_quorum check how
@@ -2078,10 +2159,6 @@ function check_email_enabled() {
 function check_xs_ha() {
   log "$FUNCNAME" "Checking XenServer HA status"
 
-  # Retrieve pool UUID
-  local POOL_UUID
-  POOL_UUID=$(xe pool-list --minimal)
-
   # Get XenServer HA status for the pool
   local XS_HA_STATUS
   XS_HA_STATUS=$($XE pool-param-get uuid="$POOL_UUID" param-name=ha-enabled)
@@ -2109,10 +2186,8 @@ function check_xs_ha() {
 # xapi is responding
 ####################################
 function disable_ha_lizard() {
-  local POOL_UUID
-  POOL_UUID=$(xe pool-list --minimal)
   log "$FUNCNAME" "Attempting to forcefully disable HA-Lizard"
-  if xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false; then
+  if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
     log "$FUNCNAME" "Error encountered while disabling HA-Lizard"
     return 1
   else
@@ -2148,130 +2223,167 @@ function update_global_conf_params() {
 ##################################################
 # Function check_master_mgt_link_state
 #
-# Check whether management link physical state is
-# UP or DOWN.
+# This function checks the physical state of the management link (UP/DOWN) for the master node.
 #
+# Expected to be called only by a master (NO VALIDATION).
+# ** WILL HANG IF CALLED BY A SLAVE WHILE ITS LINK IS DOWN.
 #
-# Expected only to be called by a master (NO VALIDATION)
-# ** WILL HANG IF CALLED BY A SLAVE WHILE ITS LINK IS DOWN
+# Args:
+#   None
 #
-# Args passed in = none
-#
-# Returns 0 on success (management link is UP)
-# Returns 1 on failure (management link is down)
+# Returns:
+#   0 if management link is UP
+#   1 if management link is DOWN
 #
 ##################################################
 function check_master_mgt_link_state() {
+  # Log the start of the function and the action being performed
   log "$FUNCNAME" "Checking management interface link state"
-  local MY_UUID
-  MY_UUID=$(xe host-list hostname="$(hostname)" --minimal)
-  local MY_MGT_IP
-  MY_MGT_IP=$(xe host-param-get uuid="$MY_UUID" --minimal param-name=address)
-  local MY_MGT_LINK
-  MY_MGT_LINK=$(ip addr show | grep "$MY_MGT_IP" | awk '{print $NF}')
-  local MY_MGT_NETWORK
-  MY_MGT_NETWORK=$(xe network-list bridge="$MY_MGT_LINK" --minimal)
-  local MY_MGT_NETWORK_DEVICE
-  MY_MGT_NETWORK_DEVICE=$(xe pif-list network-uuid="$MY_MGT_NETWORK" host-uuid="$MY_UUID" --minimal)
-  local MY_MGT_NETWORK_DEVICE_LINK_STATE
-  MY_MGT_NETWORK_DEVICE_LINK_STATE=$(xe pif-param-get uuid="$MY_MGT_NETWORK_DEVICE" host-uuid="$MY_UUID" param-name=carrier)
+  # Get the UUID of the current host (master node)
+  local this_host_uuid
+  this_host_uuid=$(xe_host_list hostname="$(hostname)")
 
-  log "$FUNCNAME" "Link State = [ $MY_MGT_NETWORK_DEVICE_LINK_STATE ] for management interface IP [ $MY_MGT_IP ]"
-  case $MY_MGT_NETWORK_DEVICE_LINK_STATE in
+  # Get the management IP address of the current host
+  local my_mgt_ip
+  my_mgt_ip=$(xe_host_param_get uuid="$this_host_uuid" param-name=address)
+
+  # Get the link associated with the management IP address using `ip addr show`
+  local my_mgt_link
+  my_mgt_link=$(ip addr show | grep "$my_mgt_ip" | awk '{print $NF}')
+
+  # Get the network UUID associated with the management link
+  local my_mgt_network
+  my_mgt_network=$(xe_network_list bridge="$my_mgt_link")
+
+  # Get the network device UUID associated with the management network
+  local my_mgt_network_device
+  my_mgt_network_device=$(xe_pif_list network-uuid="$my_mgt_network" host-uuid="$this_host_uuid")
+
+  # Get the link state (carrier) of the management network device
+  local my_mgt_network_device_link_state
+  my_mgt_network_device_link_state=$(xe pif-param-get uuid="$my_mgt_network_device" host-uuid="$this_host_uuid" param-name=carrier)
+
+  # Log the retrieved link state for debugging purposes
+  log "$FUNCNAME" "Link State = [ $my_mgt_network_device_link_state ] for management interface IP [ $my_mgt_ip ]"
+
+  # Handle the different possible states of the management link
+  case $my_mgt_network_device_link_state in
   true)
-    log "$FUNCNAME" "Link [ $MY_MGT_LINK ] state UP"
+    # Link is UP
+    log "$FUNCNAME" "Link [ $my_mgt_link ] state UP"
     return 0
     ;;
   false)
-    log "$FUNCNAME" "Link [ $MY_MGT_LINK ] state DOWN"
+    # Link is DOWN
+    log "$FUNCNAME" "Link [ $my_mgt_link ] state DOWN"
     return 1
     ;;
   *)
     ###########################################
-    ## UNKNOWN link state  - handle as true
+    # UNKNOWN link state - treat as UP (safe assumption)
     ###########################################
-    log "$FUNCNAME" "Link [ $MY_MGT_LINK ] state [ $MY_MGT_LINK_STATE ] - returning success"
+    log "$FUNCNAME" "Link [ $my_mgt_link ] state [ $my_mgt_network_device_link_state ] - assuming UP"
     return 0
     ;;
   esac
 } # End function check_master_mgt_link_state
 
 ##########################################
-# Function stop_vms_on_host
-# performs a forceful shutdown of all VMs
-# on a specific host. Shutdowns are
-# parallel executed to make the shutdown
-# as rapid as possible
+# Function: stop_vms_on_host
 #
-# Args passed in:
-# arg1=host-UUID
+# Description:
+# This function performs a forceful shutdown of all VMs on a specified host.
+# It retrieves the list of VMs excluding control domains and attempts to destroy
+# each VM's domain. The function utilizes different modes (legacy xenops or XL
+# toolstack) to destroy domains, checks for the power-state, and handles VDI
+# resets and power-state cleanup for paused VMs.
 #
+# Arguments:
+# arg1 - host-UUID: The UUID of the host whose VMs are to be stopped.
+#
+# Behavior:
+# - Retrieves VM UUIDs on the specified host.
+# - Iterates through each VM, retrieves its domain ID, and destroys the domain.
+# - Checks if the domain destruction was successful and resets VDI if needed.
+# - Monitors shutdown tasks, ensuring all VMs are shut down before completing.
+#
+# Returns:
+# Always returns 0 after ensuring all shutdown tasks are completed.
 ##########################################
 function stop_vms_on_host() {
-  local HOST_UUID=$1
-  log "$FUNCNAME" "Stopping all VMs on host [ $HOST_UUID ] "
-  local VM_LIST
-  mapfile -t VM_LIST < <($XE vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false | tr "," "\n")
-  for vm_uuid in "${VM_LIST[@]}"; do
-    local VM_NAME_LABEL
-    VM_NAME_LABEL=$(xe vm-param-get uuid="$vm_uuid" param-name=name-label)
-    DOMAIN_ID=$($LIST_DOMAINS | grep "$vm_uuid" | awk '{print $1}')
-    for dom_id in "${DOMAIN_ID[@]}"; do
-      log "$FUNCNAME" "Destroying domain [ $dom_id ] VM [ $VM_NAME_LABEL ]"
+  # Host UUID passed as an argument
+  local host_uuid="$1"
+  log "$FUNCNAME" "Stopping all VMs on host [ $host_uuid ]"
+  # Retrieve a list of VM UUIDs resident on the host, excluding control domains
+  local vm_list
+  mapfile -t vm_list < <(xe_vm_list resident-on="$host_uuid")
+
+  # Loop through each VM UUID and perform shutdown
+  for vm_uuid in "${vm_list[@]}"; do
+    # Retrieve the VM's name label
+    local vm_name_label
+    vm_name_label=$(xe_vm_param_get uuid="$vm_uuid" param-name=name-label)
+
+    # Retrieve the domain ID associated with the VM
+    local domain_id
+    domain_id=$($LIST_DOMAINS | grep "$vm_uuid" | awk '{print $1}')
+
+    # Loop through each domain ID and perform necessary actions
+    for dom_id in "${domain_id[@]}"; do
+      log "$FUNCNAME" "Destroying domain [ $dom_id ] for VM [ $vm_name_label ]"
       if [ -e /opt/xensource/debug/xenops ]; then
-        log "$FUNCNAME" "Using legacy xenops mode [ /opt/xensource/debug/xenops destroy_domain -domid ""$dom_id"" ]"
+        log "$FUNCNAME" "Using legacy xenops mode to destroy domain [ $dom_id ]"
         /opt/xensource/debug/xenops destroy_domain -domid "$dom_id"
       else
-        log "$FUNCNAME" "Using XL toolstack mode [ $XL_EXEC destroy $dom_id ]"
+        log "$FUNCNAME" "Using XL toolstack mode to destroy domain [ $XL_EXEC destroy $dom_id ]"
         $XL_EXEC destroy "$dom_id" &>/dev/null
       fi
-
+      # TODO: why we need to run it twice ?
       $LIST_DOMAINS -domid "$dom_id" &>/dev/null
-      DOMAIN_IS_LIVE=$(xe vm-param-get uuid="$vm_uuid" param-name=power-state)
-      log "$FUNCNAME" "Domain [ $dom_id ] [ $VM_NAME_LABEL ] power-state = [ $DOMAIN_IS_LIVE ]"
-      if [ "$DOMAIN_IS_LIVE" != "running" ]; then
-        log "$FUNCNAME" "domain [ $dom_id ] destroyed"
-        ##########################################
-        ## Cleanup after destruction - normalize
-        ## power-state and reset VDI so that
-        ## VM can be cleanly started
-        ##########################################
-        log "$FUNCNAME" "Resetting VDI for VM [ $vm_uuid ] [ $VM_NAME_LABEL ]"
-        reset_vm_vdi "${vm_uuid}"
-        RETVAL=$?
-        if [ $RETVAL -eq 0 ]; then
-          log "$FUNCNAME" "VDI reset success"
+      # Check if the domain is live after the destruction attempt
+      local domain_is_live
+      domain_is_live=$(xe_vm_param_get uuid="$vm_uuid" param-name=power-state)
+      log "$FUNCNAME" "Domain [ $dom_id ] for VM [ $vm_name_label ] power-state = [ $domain_is_live ]"
+
+      if [ "$domain_is_live" != "running" ]; then
+        log "$FUNCNAME" "Domain [ $dom_id ] destroyed successfully."
+
+        # Reset the VM's VDI and handle power-state cleanup if needed
+        log "$FUNCNAME" "Resetting VDI for VM [ $vm_uuid ] [ $vm_name_label ]"
+
+        if reset_vm_vdi "$vm_uuid"; then
+          log "$FUNCNAME" "VDI reset success for VM [ $vm_name_label ]"
         else
-          log "$FUNCNAME" "Error resetting VDI"
+          log "$FUNCNAME" "Error resetting VDI for VM [ $vm_name_label ]"
         fi
 
-        local THIS_VM_POWER_STATE
-        THIS_VM_POWER_STATE=$(xe vm-param-get uuid="$vm_uuid" param-name=power-state)
-        if [ "$THIS_VM_POWER_STATE" = "paused" ]; then
-          log "$FUNCNAME" "Resetting power-state for [ $VM_NAME_LABEL ]"
-          ###########################################
-          ## Clean up sloppy power state left by
-          ## destroying through XL toolstack
-          ###########################################
+        # If VM is paused, reset its power-state
+        local this_vm_power_state
+        this_vm_power_state=$(xe_vm_param_get uuid="$vm_uuid" param-name=power-state)
+
+        if [ "$this_vm_power_state" = "paused" ]; then
+          log "$FUNCNAME" "Resetting power-state for VM [ $vm_name_label ]"
+          # Clean up sloppy power state left by destroying through XL toolstack
           xe vm-reset-powerstate uuid="$vm_uuid" --force
         fi
-
       else
-        log "$FUNCNAME" "Error destroying domain [ $dom_id ] - giving up"
-        SUCCESS=false
+        log "$FUNCNAME" "Error destroying domain [ $dom_id ] for VM [ $vm_name_label ] - giving up"
       fi
 
-      THIS_VM_POWER_STATE=$(xe vm-param-get uuid="$vm_uuid" param-name=power-state)
-      log "$FUNCNAME" "VM [ $vm_uuid ] [ $VM_NAME_LABEL ] power-state = [ $THIS_VM_POWER_STATE ]"
-      if [ "$THIS_VM_POWER_STATE" != "running" ]; then
-        log "$FUNCNAME" "Destroy domain [ $dom_id ] UUID:[ $vm_uuid ] [ $VM_NAME_LABEL ] success"
+      # Final check on the VM's power-state after destruction
+      this_vm_power_state=$(xe_vm_param_get uuid="$vm_uuid" param-name=power-state)
+      log "$FUNCNAME" "VM [ $vm_uuid ] [ $vm_name_label ] power-state after destruction = [ $this_vm_power_state ]"
+
+      if [ "$this_vm_power_state" != "running" ]; then
+        log "$FUNCNAME" "Destroy domain [ $dom_id ] for VM [ $vm_name_label ] successful"
       else
-        log "$FUNCNAME" "Destroy domain [ $dom_id ] UUID:[ $vm_uuid ] [ $VM_NAME_LABEL ] failure"
+        log "$FUNCNAME" "Destroy domain [ $dom_id ] for VM [ $vm_name_label ] failed"
       fi
     done
   done
 
   ##########################
+  ## Monitor shutdown tasks
   ## returned value will
   ## almost always be 0
   ## regardless of success
@@ -2279,54 +2391,83 @@ function stop_vms_on_host() {
   ## return whatever we
   ## get anyway
   ##########################
-  local NUM_TASKS
-  NUM_TASKS=$(xe task-list | grep -c "hard_shutdown")
-  while [ "$NUM_TASKS" -gt 0 ]; do
+  # TODO: very sure that we can list the task-list by names here. but, not need to make a lab and test.
+  local num_tasks
+  num_tasks=$(xe task-list | grep -c "hard_shutdown")
+
+  # Wait for shutdown tasks to complete
+  while [ "$num_tasks" -gt 0 ]; do
     sleep 2
-    NUM_TASKS=$(xe task-list | grep -c "hard_shutdown")
-    if [ "$NUM_TASKS" -gt 0 ]; then
-      log "$FUNCNAME" "[ $NUM_TASKS ] VMs pending shutdown"
+    num_tasks=$(xe task-list | grep -c "hard_shutdown")
+
+    if [ "$num_tasks" -gt 0 ]; then
+      log "$FUNCNAME" "[ $num_tasks ] VMs pending shutdown"
       sleep 1
     else
-      log "$FUNCNAME" "VM shutdown tasks completed - return out"
+      log "$FUNCNAME" "VM shutdown tasks completed."
       break
-      RETVAL=0
     fi
   done
 
-  return "$RETVAL"
-
-} # End function stop_vms_on_host
+  return 0
+}
 
 ##########################################
 # Function stop_vms_on_host_slow
 # !! Does not work if MGT link is down
 # !! use alternate function which
 # !! destroys domain
-# performs a forceful shutdown of all VMs
+# Performs a forceful shutdown of all VMs
 # on a specific host. Shutdowns are
 # parallel executed to make the shutdown
-# as rapid as possible
+# as rapid as possible.
 #
 # Args passed in:
 # arg1=host-UUID
-#
 ##########################################
+# BUG: this looks like are not been used anymore. May we can remove it.
 function stop_vms_on_host_slow() {
-  local HOST_UUID=$1
-  log "$FUNCNAME" "Stopping all VMs on host [ $HOST_UUID ] "
-  local VM_LIST
-  mapfile -t VM_LIST < <($XE vm-list --minimal resident-on="$HOST_UUID" is-control-domain=false | tr "," "\n")
-  OLD_IFS=$IFS
-  IFS=','
-  local SHUTDOWN_EXEC=""
-  for vm_uuid in "${VM_LIST[@]}"; do
-    SHUTDOWN_EXEC="${SHUTDOWN_EXEC}(xe vm-shutdown uuid=$vm_uuid force=true &);"
-    log "$FUNCNAME" "Shutdown Exec =  [ $SHUTDOWN_EXEC ]"
+  local host_uuid="$1" # Host UUID passed as an argument
+
+  # Check that host_uuid is not null
+  if [ -z "$host_uuid" ]; then
+    log "$FUNCNAME" "Host UUID is null - Aborting"
+    return 1
+  fi
+
+  log "$FUNCNAME" "Stopping all VMs on host [ $host_uuid ]"
+
+  # Retrieve a list of VM UUIDs resident on the host
+  local vm_list
+  mapfile -t vm_list < <(xe_vm_list resident-on="$host_uuid")
+
+  # Check that the list of VMs is not empty
+  if [ ${#vm_list[@]} -eq 0 ]; then
+    log "$FUNCNAME" "No VMs found on host [ $host_uuid ] - Aborting"
+    return 1
+  fi
+
+  # Initialize shutdown execution commands
+  local shutdown_exec=""
+
+  # Loop through each VM UUID and prepare shutdown commands
+  for vm_uuid in "${vm_list[@]}"; do
+    # Check that vm_uuid is not null
+    if [ -z "$vm_uuid" ]; then
+      log "$FUNCNAME" "vm_uuid is null - skipping"
+      continue
+    fi
+
+    shutdown_exec="${shutdown_exec}(xe vm-shutdown uuid=$vm_uuid force=true &);"
+    log "$FUNCNAME" "Shutdown Exec = [ $shutdown_exec ]"
   done
 
-  eval "${SHUTDOWN_EXEC}"
-  RETVAL=$?
+  # Execute the shutdown commands in parallel
+  eval "$shutdown_exec"
+
+  # Capture the return value of the shutdown execution
+  local retval=$?
+
   ##########################
   ## returned value will
   ## almost always be 0
@@ -2335,10 +2476,9 @@ function stop_vms_on_host_slow() {
   ## return whatever we
   ## get anyway
   ##########################
-  IFS=$OLD_IFS
-  return $RETVAL
 
-} # End function stop_vms_on_host_slow
+  return "$retval"
+}
 
 function service_execute() {
   ######################################################################
@@ -2477,55 +2617,71 @@ function make_box() {
 } #End function make_box
 
 ########################################
-# function write_state_path
-# writes basic pool information to
+# function write_status_report
+# Writes basic pool information to
 # file. Used to include add
-# details on email alerts
+# details on email alerts.
 #
 # Args passed in = none
 #
 ########################################
 function write_status_report() {
+  # Log the start of the function and the action being performed
   log "$FUNCNAME" "Writing status report"
-  local STATUS_REPORT="\n"
-  local POOL_UUID
-  POOL_UUID=$($XE pool-list --minimal)
-  local POOL_NAME
-  POOL_NAME=$($XE pool-param-get uuid="$POOL_UUID" param-name=name-label)
-  local POOL_MASTER
-  POOL_MASTER=$($XE pool-param-get uuid="$POOL_UUID" param-name=master)
-  STATUS_REPORT+="Pool UUID       : $POOL_UUID\n"
-  STATUS_REPORT+="Pool Name-Label : $POOL_NAME\n"
-  STATUS_REPORT+="Pool Master UUID: $POOL_MASTER\n"
 
-  local POOL_HOSTS
-  mapfile -t POOL_HOSTS < <($XE host-list --minimal | tr "," "\n")
-  for pool_host in "${POOL_HOSTS[@]}"; do
-    local THIS_HOST_NAME_LABEL
-    THIS_HOST_NAME_LABEL=$($XE host-param-get uuid="$pool_host" param-name=name-label)
-    local THIS_HOST_UUID=$pool_host
-    if [ "$POOL_MASTER" = "$pool_host" ]; then
-      THIS_HOST_IS_MASTER="true"
-    else
-      THIS_HOST_IS_MASTER="false"
+  # Initialize the status report string
+  local status_report="\n"
+
+  # Get the pool name-label using the xe wrapper function
+  local pool_name
+  pool_name=$(xe_pool_param_get uuid="$POOL_UUID" param-name=name-label)
+
+  # Get the pool master UUID using the xe wrapper function
+  local pool_master
+  pool_master=$(xe_pool_master_uuid)
+
+  # Add pool information to the report
+  status_report+="Pool UUID       : $POOL_UUID\n"
+  status_report+="Pool Name-Label : $pool_name\n"
+  status_report+="Pool Master UUID: $pool_master\n"
+
+  # Get the list of host UUIDs in the pool and store in an array using mapfile
+  mapfile -t pool_hosts < <(xe_host_list)
+
+  # Iterate over each host UUID in the pool
+  for pool_host in "${pool_hosts[@]}"; do
+    # Get host name-label using the xe wrapper function
+    local host_name_label
+    host_name_label=$(xe_host_param_get uuid="$pool_host" param-name=name-label)
+
+    # The current host UUID is stored in host_uuid
+    local host_uuid="$pool_host"
+
+    # Determine if the host is the pool master
+    local host_is_master="false"
+    if [ "$pool_master" = "$pool_host" ]; then
+      host_is_master="true"
     fi
 
-    STATUS_REPORT+="--------------------------------------------------------\n"
-    STATUS_REPORT+="Host Name-Label : $THIS_HOST_NAME_LABEL\n"
-    STATUS_REPORT+="Host UUID       : $THIS_HOST_UUID\n"
-    STATUS_REPORT+="Pool Master     : $THIS_HOST_IS_MASTER\n"
-
+    # Add host information to the status report
+    status_report+="--------------------------------------------------------\n"
+    status_report+="Host Name-Label : $host_name_label\n"
+    status_report+="Host UUID       : $host_uuid\n"
+    status_report+="Pool Master     : $host_is_master\n"
   done
-  STATUS_REPORT=$(echo -e "$STATUS_REPORT")
-  FINAL_REPORT="$STATUS_REPORT"
-  echo "$FINAL_REPORT" >"$STATE_PATH"/status_report
 
-  #############################
-  ## add pool uuid here since
-  ## we have it already
-  #############################
-  echo "${POOL_UUID}" >"$STATE_PATH"/pool_uuid
-} #End function write_status_report
+  # Convert status_report to a formatted string
+  status_report=$(echo -e "$status_report")
+
+  # Assign the final report
+  local final_report="$status_report"
+
+  # Write the status report to the file at the defined STATE_PATH
+  echo "$final_report" >"$STATE_PATH"/status_report
+
+  # Write the pool UUID to the pool_uuid file
+  echo "$pool_uuid" >"$STATE_PATH"/pool_uuid
+}
 
 #######################################
 # function validate_vm_ha_state
@@ -2617,93 +2773,103 @@ function reset_vm_vdi() {
 } #End function reset_vm_vdi
 
 #############################################
-# function validate_this_host_vm_states
-# will compare list of running VMs reported
-# by xen against XAPI. Used to capture any
-# VMs that are really running on another host
+# Function: validate_this_host_vm_states
+# Compares the list of running VMs reported by Xen against XAPI
+# to capture any VMs running on another host due to misalignment.
+# Misalignment can occur if HA failover is in progress or if a failed
+# host reappears before it has self-fenced.
 #
-# This misalignment of states (XAPI/XEN) can
-# occur if an HA failover is in progress and
-# the failed host reappears before it has self
-# fenced itself. This is a rare condition but
-# can occur during short outage or cable pulls
-# lasting 30-60 seconds
+# Intended to be called by a slave host only, since a master has local
+# visibility into its VMs running as reported by xenopsd.
 #
-# Intended to be called by a slave only
-# since a master has local visibility into
-# it's VMs running as reported by xenopsd
+# Args: None
 #
-# Params passed in = none
-#
-################################################
+# Returns: 1 if validation fails, 0 if validation passes
+#############################################
 function validate_this_host_vm_states {
-  local MY_HOST_UUID
-  MY_HOST_UUID=$(cat "$STATE_PATH"/local_host_uuid)
-  RETVAL=$?
-  if [ $RETVAL -ne 0 ] || [ -z "$MY_HOST_UUID" ]; then
-    log "$FUNCNAME" "This host UUID not found in [ $STATE_PATH/local_host_uuid ] - using alternate method"
-    MY_HOST_UUID=$($XE host-list hostname="$(hostname)" --minimal)
-    RETVAL=$?
-    if [ $RETVAL -ne 0 ]; then
+  # Retrieve the local host UUID from the state path file
+  local my_host_uuid
+  if my_host_uuid=$(cat "$STATE_PATH"/local_host_uuid) || [ -z "$my_host_uuid" ]; then
+    log "$FUNCNAME" "This host UUID not found in [ $STATE_PATH/local_host_uuid ] - using xe command as alternate method"
+    if ! my_host_uuid=$(xe_host_list hostname="$(hostname)"); then
       log "$FUNCNAME" "Error retrieving this host's UUID - giving up"
       return 1
     fi
   fi
 
-  if [ ${#MY_HOST_UUID} -ne 36 ]; then
-    log "$FUNCNAME" "This host UUID [ $MY_HOST_UUID ] invalid. Aborting VM state validations"
+  # Validate the host UUID format
+  if [ ${#my_host_uuid} -ne 36 ]; then
+    log "$FUNCNAME" "Invalid this host UUID [ $my_host_uuid ] - Aborting VM state validation."
     return 1
   else
-    log "$FUNCNAME" "MY HOST UUID = [ $MY_HOST_UUID ] - validated"
+    log "$FUNCNAME" "This Host UUID validated: [ $my_host_uuid ]"
   fi
 
-  local XEN_RUNNING_VM_LIST
-  XEN_RUNNING_VM_LIST=$($LIST_DOMAINS -minimal)
+  # Get the list of running domains using xe wrapper
+  local xen_running_vm_list
+  mapfile -t xen_running_vm_list <($LIST_DOMAINS -minimal)
   ####################################
   ## Make sure XAPI is not reporting
   ## running local VMs elsewhere
   ####################################
-  for vm_running_here in "${XEN_RUNNING_VM_LIST[@]}"; do
-    log "$FUNCNAME" "VM [ $vm_running_here ] validation start"
-    local XAPI_RUNNING_HOST
-    XAPI_RUNNING_HOST=$($XE vm-param-get uuid="$vm_running_here" param-name=resident-on)
-    if [ ${#XAPI_RUNNING_HOST} -ne 36 ]; then
-      log "$FUNCNAME" "Invalid UUID [ $XAPI_RUNNING_HOST ]"
+  # Validate the running VMs reported by Xen against XAPI
+  for vm in "${xen_running_vm_list[@]}"; do
+    log "$FUNCNAME" "Validating VM [ $vm ]"
+
+    # Get the host where the VM is running as per XAPI
+    local xapi_running_host
+    xapi_running_host=$(xe_vm_param_get uuid="$vm" param-name=resident-on)
+
+    if [ ${#xapi_running_host} -ne 36 ]; then
+      log "$FUNCNAME" "Invalid UUID [ $xapi_running_host ] for VM [ $vm ]"
       continue
     fi
-    log "$FUNCNAME" "VM [ $vm_running_here ] reported as running on host [ $XAPI_RUNNING_HOST ]"
-    if [ "$MY_HOST_UUID" != "$XAPI_RUNNING_HOST" ]; then
-      log "$FUNCNAME" "This Host UUID [ $MY_HOST_UUID ] != Running Host UUID [ $XAPI_RUNNING_HOST ]"
+
+    log "$FUNCNAME" "VM [ $vm ] is reported as running on host [ $xapi_running_host ]"
+
+    # If the running host differs from the local host, validate further
+    if [ "$my_host_uuid" != "$xapi_running_host" ]; then
+      log "$FUNCNAME" "Mismatch: Host UUID [ $my_host_uuid ] != Running Host UUID [ $xapi_running_host ]"
       ###################################
       ## Make sure there are no current
       ## operations underway which could
       ## cause the VM to appear in another
       ## host - like live migrate
       ####################################
-      local VM_CURRENT_OPERATIONS
-      VM_CURRENT_OPERATIONS=$(xe vm-param-get uuid="$vm_running_here" param-name=current-operations)
-      if [[ ${VM_CURRENT_OPERATIONS} =~ ^[A-Za-z_-]+$ ]]; then
-        log "$FUNCNAME" "Current operation [ $VM_CURRENT_OPERATIONS ] detected on VM [ $vm_running_here ]"
+      # Check if the current operations string contains only valid characters:
+      # letters (A-Z, a-z), underscores, and hyphens. This ensures it's a valid
+      # ongoing operation like "migrate" or "snapshot", and not an invalid or empty value.
+      local vm_current_operations
+      vm_current_operations=$(xe_vm_param_get uuid="$vm" param-name=current-operations)
+
+      if [[ "$vm_current_operations" =~ ^[A-Za-z_-]+$ ]]; then
+        log "$FUNCNAME" "Current operation [ $vm_current_operations ] detected on VM [ $vm ], skipping"
         continue
       fi
-      log "$FUNCNAME" "VM [ $vm_running_here ] validation failed - XAPI reports running on host [ $XAPI_RUNNING_HOST ]"
-      DOMAIN_ID=$(list_domains | grep "$vm_running_here" | awk '{print $1}')
-      if [ "$DOMAIN_ID" -eq 0 ]; then
-        log "$FUNCNAME" "VM [ $vm_running_here ] is the control domain [ $DOMAIN_ID ]. Abort"
+
+      # If no operations are in progress, handle the VM's state
+      log "$FUNCNAME" "VM [ $vm ] validation failed - XAPI reports running on host [ $xapi_running_host ]"
+
+      # Retrieve the domain ID and destroy the domain if necessary
+      local domain_id
+      domain_id=$($LIST_DOMAINS | grep "$vm" | awk '{print $1}')
+
+      if [ "$domain_id" -eq 0 ]; then
+        log "$FUNCNAME" "VM [ $vm ] is the control domain [ $domain_id ]. Aborting"
       else
         if [ -e /opt/xensource/debug/xenops ]; then
-          log "$FUNCNAME" "Destroying domain [ $DOMAIN_ID ]"
-          /opt/xensource/debug/xenops destroy_domain -domid "$DOMAIN_ID"
+          log "$FUNCNAME" "Destroying domain [ $domain_id ]"
+          /opt/xensource/debug/xenops destroy_domain -domid "$domain_id"
         else
-          log "$FUNCNAME" "Destroying domain [ $DOMAIN_ID ]"
-          $XL_EXEC destroy "${DOMAIN_ID}"
+          log "$FUNCNAME" "Destroying domain [ $domain_id ]"
+          $XL_EXEC destroy "$domain_id"
         fi
       fi
     else
-      log "$FUNCNAME" "VM [ $vm_running_here ] Validation passed"
+      log "$FUNCNAME" "VM [ $vm ] validation passed"
     fi
   done
-} #End function validate_this_host_vm_states
+}
 
 ##############################################
 # function check_replication_link_state

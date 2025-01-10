@@ -1,12 +1,11 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 exec 2>/dev/null
-# shellcheck source=/dev/null
 source /etc/ha-lizard/ha-lizard.pool.conf #global configuration parameters for all hosts in pool - dynamic for pool
-# shellcheck source=/dev/null
-source /etc/ha-lizard/ha-lizard.init #override configuration settings for this host - static for this host
-# shellcheck source=/dev/null
+source /etc/ha-lizard/ha-lizard.init      #override configuration settings for this host - static for this host
 source /usr/lib64/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/common_functions.sh
 
 #######################
 # Environment VARs
@@ -25,33 +24,32 @@ LOG_EXEC='/usr/libexec/ha-lizard/log'
 TIMEOUT=false
 
 #########################
-# Don't hang around if
-# this is a slave and
-# xe is slow to respond
+# Check if the host is a slave
 #########################
 if [[ $(cat /etc/xensource/pool.conf) == slave* ]]; then
-  # TODO: change timeout for built-in timeout
-  if [ -n "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" ]; then
-    #########################################
-    ## Lets display status if we can
-    #########################################
+  # Try to get the pool UUID with a 3-second timeout
+  POOL_UUID=$(timeout 3s xe pool-list --minimal 2>/dev/null)
+
+  # If timeout occurred or command failed, handle accordingly
+  if [ -z "$POOL_UUID" ]; then
     echo "timeout"
     TIMEOUT=true
-    #exit 124
   fi
 fi
 
 ##########################
-# Make sure XE is alive
-# when calling externally
+# Ensure XE is responsive or exit
 ##########################
-if [[ "$3" = "timeout" || "$2" = "timeout" ]]; then
-  # TODO: change timeout for built-in timeout
-  if [ -n "$(/usr/libexec/ha-lizard/scripts/timeout 3 xe pool-list --minimal)" ]; then
+if [[ "$3" == "timeout" || "$2" == "timeout" || "$TIMEOUT" == true ]]; then
+  # Retry fetching the pool UUID with a 3-second timeout
+  POOL_UUID=$(timeout 3s xe pool-list --minimal 2>/dev/null)
+  if [ -z "$POOL_UUID" ]; then
+    log "Error: Unable to retrieve pool UUID, exiting."
     exit 124
   fi
-elif [ ${TIMEOUT} = "false" ]; then
-  POOL_UUID=$(xe pool-list --minimal)
+else
+  # Use the new get_pool_uuid function for standard behavior
+  POOL_UUID=$(get_pool_uuid)
 fi
 
 ##############################
@@ -64,8 +62,8 @@ function insert() {
   for i in $PARAM_LIST; do
     PARAM=$(echo "$i" | awk -F "=" '{print $1}')
     VALUE=$(echo "$i" | awk -F "=" '{print $2}')
-    if [ "$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=$PREFIX"$PARAM" &>/dev/null)" -ne 0 ]; then
-      xe pool-param-add uuid="$POOL_UUID" param-name=other-config $PREFIX"$PARAM"="$VALUE"
+    if ! xe_pool_other_param_get "$PREFIX$PARAM"; then
+      xe_pool_other_param_add "$PREFIX$PARAM" "$VALUE"
       echo "Inserting $PREFIX$PARAM=$VALUE"
     fi
   done
@@ -75,7 +73,7 @@ function remove() {
   for i in $PARAM_LIST; do
     PARAM=$(echo "$i" | awk -F "=" '{print $1}')
     VALUE=$(echo "$i" | awk -F "=" '{print $2}')
-    xe pool-param-remove uuid="$POOL_UUID" param-name=other-config param-key="$PREFIX$PARAM"
+    xe_pool_other_param_remove "$PREFIX$PARAM"
     echo "Removing $PREFIX$PARAM=$VALUE"
   done
 } #End function remove
@@ -112,57 +110,46 @@ function validate_ip() {
 } #End function validate_ip
 
 #################################
-# Function get retrieves all
-# custom global params from xapi
-# and displays.
-# Following params supported for arg1
+# Retrieve and display all custom global parameters from xapi param-name=other-config
 #
-# none - no argument - standard display
-# with columns
+# Parameters:
+#   --silent  - Only populate the global PARAM_LIST array without displaying.
+#   -l        - List display without columns.
 #
-# -l - list display - no columns
+# Output:
+#   - Populates the global PARAM_LIST array with formatted parameters and values.
+#   - Displays the formatted list of global parameters and values with columns.
 #
-# --silent - only populate global array
-# PARAM_LIST() without displaying
+# Notes:
+#   - Parameters prefixed with the defined $PREFIX are processed.
+
 #################################
-function get() {
-  # Retrieve the list of parameters, removing whitespace
-  local -r raw_param_list=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config --minimal | tr -d '[:space:]')
+get() {
+  local raw_output
+  local formatted_list
 
-  # Save the original IFS and update it for splitting by semicolon
-  local original_ifs="$IFS"
-  IFS=';'
-
-  # Initialize an array for processed parameters
-  local param_array=()
-  local -r temp_file=$(mktemp -t ha-lizard.XXXXXX)
-
-  # Loop through each parameter in the list
-  for param in $raw_param_list; do
-    # Process parameters starting with the prefix "HA_"
-    if [[ "$param" == $PREFIX* ]]; then
-      # Remove the prefix and replace ':' with '='
-      param="${param/$PREFIX/}"
-      param="${param/:/=}"
-      param_array+=("$param")
-
-      # Write the processed parameter to a temporary file
-      echo "$param" >>"$temp_file"
-    fi
-  done
-
-  # Display or sort parameters based on the input flag
-  if [[ "$1" != "--silent" && "$1" != "-l" ]]; then
-    sort <"$temp_file" | column
-  elif [[ "$1" == "-l" ]]; then
-    sort <"$temp_file"
+  # Fetch the "other-config" parameters as a raw string
+  if ! raw_output=$(xe_pool_other_param_list); then
+    log "Error: Failed to retrieve 'other-config' parameters."
+    return 1
   fi
 
-  # Restore the original IFS
-  IFS="$original_ifs"
+  # Process the raw output into an array
+  mapfile -t formatted_list <<<"$raw_output"
 
-  # Clean up the temporary file
-  rm -f "$temp_file"
+  # Populate the global PARAM_LIST array
+  PARAM_LIST=("${formatted_list[@]}")
+
+  # Display based on the argument provided
+  if [[ $1 != "--silent" && $1 != "-l" ]]; then
+    # Use echo to print each element, pipe to sort and format as columns
+    echo "${formatted_list[@]}" | tr ' ' '\n' | sort | column
+  elif [[ $1 == "-l" ]]; then
+    # Print each element as a sorted list
+    echo "${formatted_list[@]}" | tr ' ' '\n' | sort
+  fi
+
+  return 0
 }
 
 ##################################
@@ -197,8 +184,7 @@ function set() {
     else
       validate "$PARAM_UPPER" ""
     fi
-    if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:$PREFIX"$PARAM_UPPER"="$3")" = 0 ]; then
-      #get
+    if xe_pool_other_param_set "$PREFIX$PARAM_UPPER" "$3"; then
       green
       echo "Successfully updated $2 to value: $3"
       WAIT=$(get -l | grep MONITOR_DELAY | awk -F "=" '{print $2}') && WAIT=$((WAIT * 2))
@@ -207,7 +193,6 @@ function set() {
       restart_required "$2"
     fi
   else
-    #get
     red
     echo "Parameter name $2 not found in xapi database - check your configuration and syntax"
     echo "Valid configuration parameters are listed above"
@@ -257,7 +242,7 @@ function set-quiet() {
     fi
 
     # Set the parameter
-    if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:$PREFIX"$PARAM_UPPER"="$3")" = 0 ]; then
+    if xe_pool_other_param_set "$PREFIX$PARAM_UPPER" "$3"; then
       green
       echo "Successfully updated $2 to value: $3"
       normal
@@ -476,142 +461,170 @@ function validate() {
 
 } #End function validate
 
-###################################
-# Function vm_ha_status - lists
-# all pool VMs with status of
-# HA enabled for each VM
-###################################
-function vm_ha_status() {
-  echo -e "Retrieving data.. please wait\r"
+# vm_ha_status
+# ==============
+#
+# Retrieves the High Availability (HA) status for all VMs in the pool.
+#
+# The function writes a tempfile with the following columns:
+#   - HA-Enabled: 1 if the VM is HA-enabled, 0 if not.
+#   - VM-UUID: the UUID of the VM.
+#   - VM-Name: the name-label of the VM.
+#
+# The function also displays a formatted table based on the tempfile.
+# If the pool OP_MODE is set to 2, the function displays the GLOBAL_VM_HA
+# configuration and suggests how to configure HA status for VMs.
+vm_ha_status() {
+  # Notify the user about data retrieval
+  echo -e "Retrieving data. Please wait...\r"
   echo -e "HA-Enabled\tVM-UUID\tVM-Name" >./tempfile
 
-  # Get list of VMs excluding snapshots and control domains
-  local VM_LIST_NO_CNTRL_DOM
-  VM_LIST_NO_CNTRL_DOM=$(xe vm-list is-a-snapshot=false is-control-domain=false --minimal | tr ',' '\n')
+  # Retrieve list of VM UUIDs excluding snapshots and control domains
+  local vm_list
+  if ! mapfile -t vm_list < <(xe_vm_list); then
+    return 1
+  fi
 
-  local -r temp_file=$(mktemp -t ha-lizard.XXXXXX)
-
-  # Iterate through each VM UUID
-  for i in $VM_LIST_NO_CNTRL_DOM; do
-    # Fetch the HA status for the VM
-    local STATUS
-    if ! STATUS=$(xe vm-param-get uuid="$i" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME"); then
-      STATUS="unset"
+  # Iterate over each VM UUID to get its HA status and name
+  for vm_uuid in "${vm_list[@]}"; do
+    # Retrieve HA status for the VM, defaulting to 'unset' if unavailable
+    local status
+    if ! status=$(xe_vm_param_get uuid="$vm_uuid" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME"); then
+      status="unset"
     fi
 
-    # Get the VM's name
-    local NAME
-    NAME=$(xe vm-param-get uuid="$i" param-name=name-label)
+    # Retrieve VM name-label
+    local name
+    if ! name=$(xe_vm_param_get uuid="$vm_uuid" param-name=name-label); then
+      name="unknown"
+    fi
 
-    # Write the VM status to tempfile
-    echo -e "$STATUS\t$i\t$NAME" >>"$temp_file"
+    # Append the HA status, UUID, and name to the tempfile
+    echo -e "$status\t$vm_uuid\t$name" >>./tempfile
   done
 
-  # Fetch global pool configuration and OP_MODE
-  local PARAM="OP_MODE"
-  local MODE
-  PARAM="$PREFIX$PARAM"
-  if MODE=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key="$PARAM"); then
-    case "$MODE" in
+  # Retrieve global pool configuration and OP_MODE
+  local param="OP_MODE"
+  param="$PREFIX$param"
+  local mode
+  if mode=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key="$param"); then
+    case "$mode" in
     1)
       yellow
       echo "Pool OP_MODE is set to 1 - all VMs belonging to managed appliances"
-      echo "are managed regardless of HA-enabled setting within each VM"
+      echo "are managed regardless of HA-enabled setting within each VM."
       normal
       ;;
     2)
-      local GLOB_HA="GLOBAL_VM_HA"
-      GLOB_HA="$PREFIX$GLOB_HA"
-      local GLOB_HA_VAL
-      if GLOB_HA_VAL=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key="$GLOB_HA"); then
+      # Fetch and process GLOBAL_VM_HA configuration
+      local glob_ha="GLOBAL_VM_HA"
+      glob_ha="$PREFIX$glob_ha"
+      local glob_ha_val
+      if glob_ha_val=$(xe_pool_param_get uuid="$POOL_UUID" param-name=other-config param-key="$glob_ha"); then
         yellow
-        if [[ "$GLOB_HA_VAL" == "1" ]]; then
-          echo "GLOBAL_VM_HA is set to 1 - HA-enabled setting not required for each VM"
+        if [[ "$glob_ha_val" == "1" ]]; then
+          echo "GLOBAL_VM_HA is set to 1 - HA-enabled setting not required for each VM."
         else
           echo "Pool OP_MODE is set to 2 - all VMs that require HA should have HA enabled."
-          echo "Use [ha-cfg set-vm-ha ] to set HA status on VMs."
+          echo "Use [ha-cfg set-vm-ha] to configure HA status for VMs."
         fi
         normal
       else
         red
-        echo "Error retrieving global configuration parameter <$GLOB_HA>, check configuration"
+        echo "Error: Unable to retrieve the global configuration parameter '<$glob_ha>'. Please check the configuration."
         normal
       fi
       ;;
     *)
       red
-      echo "Unknown OP_MODE value $MODE"
+      echo "Unknown OP_MODE value: $mode"
       normal
       ;;
     esac
   else
     red
-    echo "Error retrieving global configuration parameter <OP_MODE>, check configuration"
+    echo "Error: Unable to retrieve the global configuration parameter '<OP_MODE>'. Please check the configuration."
     normal
   fi
 
+  # Display the results in a formatted table
   echo
-  column -ts $'\t' <"$temp_file"
-  rm -f "$temp_file"
-} # End function vm_ha_status
-######################################
-# Function set-vm-ha
-# Enable / Disable HA for passed in
-# vm name (uses vm name label)
+  column -ts $'\t' <./tempfile
+  rm -f ./tempfile
+}
+
+# Enables or disables HA for the specified VM, identified by its name-label.
 #
-# Arg 1 = vm name
-# Arg 2 = true or false
-######################################
-function set-vm-ha() {
+# Parameters:
+#   Arg 1: VM name-label
+#   Arg 2: true or false (HA status)
+#
+# Usage: <ha-cfg set-vm NAME-LABEL <true or false>>
+#   Wrap the name-label with quotes if it contains spaces.
+set_vm_ha() {
+  # Check if the required parameters are provided (name-label, HA status)
   if [[ -z "$2" ]] || [[ -z "$3" ]]; then
     red
-    echo "Missing parameters. set-vm usage: <ha-cfg set-vm NAME-LABEL <true or false>"
-    echo "If name-label includes spaces, wrap with quotes like 'this'"
+    echo "Missing parameters. Usage: <ha-cfg set-vm NAME-LABEL <true or false>"
+    echo "If name-label includes spaces, wrap it with quotes like 'this'"
     normal
     exit 1
   fi
 
+  # Check for extra arguments
   if [ "$4" ]; then
     red
-    echo "Too many arguments - check to ensure there are no spaces in name-label or wrap in single quotes"
+    echo "Too many arguments - check for spaces in name-label or wrap it in single quotes."
     normal
     exit 1
   fi
 
+  # Validate the HA status argument (true or false)
   case $3 in
-  true) ;;
-  false) ;;
+  true | false) ;; # Valid HA status
   *)
     red
-    echo "Invalid setting for enabling or disabling HA on vm: $2. Entry must be <true> or <false>"
+    echo "Invalid setting for enabling or disabling HA on VM: $2. Entry must be <true> or <false>"
     normal
     exit 1
     ;;
   esac
 
-  VM_UUID=$(xe vm-list name-label="$2" --minimal)
-  if [ -z "$VM_UUID" ]; then
+  # Retrieve the VM UUID using the xe_command wrapper
+  local vm_uuid
+  vm_uuid=$(xe_vm_list name-label="$2")
+
+  # Check if VM UUID is found
+  if [[ -z "$vm_uuid" ]]; then
     red
-    echo "Failed to retrieve UUID for VM: $2 - check the spelling of your VM name label"
+    echo "Failed to retrieve UUID for VM: $2. Check the VM name label spelling."
     normal
     exit 1
   else
-    echo "UUID for $2 found: $VM_UUID"
+    echo "UUID for $2 found: $vm_uuid"
   fi
 
-  echo "Updating VM:$2 UUID: $VM_UUID to status: $3"
-  if [ "$(xe vm-param-set uuid="$VM_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"="$3")" = "0" ]; then
+  # Update the HA status of the VM using xe_command wrapper
+  echo "Updating VM: $2 (UUID: $vm_uuid) to HA status: $3"
+
+  # Use xe_command to set the HA status for the VM
+  if [ "$(xe vm-param-set uuid="$vm_uuid" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"="$3")" = "0" ]; then
     green
     echo "Success: VM: $2 updated to HA status: $3"
-    WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
-    echo "Wait at least $WAIT seconds for changes to be applied"
+
+    # Retrieve the wait time from the configuration using a wrapper (assuming `get` is another function or command)
+    local wait_time
+    wait_time=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
+
+    # Use the value if found, otherwise fallback to the default value (15)
+    echo "Wait at least ${wait_time:-15} seconds for changes to be applied"
     normal
   else
     red
-    echo "Error in setting VM: $2 to value: $3"
+    echo "Error in setting VM: $2 to HA status: $3"
     normal
   fi
-} # End function set-vm-ha
+}
 
 function service_execute() {
   ######################################################################
@@ -682,7 +695,7 @@ function status() {
     local STATUS=TIMEOUT
   else
     local STATUS
-    STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+    STATUS=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
   fi
 
   STATUS_RETVAL=$?
@@ -777,7 +790,7 @@ HA Enabled:@ $STATUS")
     echo "ha-lizard is disabled. Enable? <yes or Enter to quit>"
     read -r ENABLE
     if [ "$ENABLE" = "yes" ]; then
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
         WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
         echo "Success. HA enabled. "
       else
@@ -804,7 +817,7 @@ HA Enabled:@ $STATUS")
     echo "ha-lizard is enabled. Disable? <yes or Enter to quit>"
     read -r DISABLE
     if [ "$DISABLE" = "yes" ]; then
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
         WAIT=$(get | grep MONITOR_DELAY | awk -F "=" '{print $2}')
         echo "Success. ha-lizard disabled. Wait at least $WAIT seconds for changes to apply to all hosts"
       else
@@ -820,14 +833,13 @@ HA Enabled:@ $STATUS")
     echo "Enter <true> to enable or <false> to disable"
     read -r UNKNOWN
     if [ "$UNKNOWN" = "false" ]; then
-
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
         echo "Success. ha-lizard disabled"
       else
         exit 0
       fi
     elif [ "$UNKNOWN" = "true" ]; then
-      if [ "$(xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true)" = "0" ]; then
+      if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
         echo "Success. ha-lizard enabled"
       else
         exit 0
@@ -847,7 +859,7 @@ function cluster_status() {
     local STATUS=TIMEOUT
   else
     local STATUS
-    STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+    STATUS=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
   fi
   if [ "$STATUS" = "false" ]; then
     HA_STATUS=$(
@@ -1323,14 +1335,12 @@ fi
 
 function ha-status() {
   local HA_STATUS
-  HA_STATUS=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+  HA_STATUS=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
   echo "$HA_STATUS"
 } #End function ha-status
 
 function ha-enable() {
-  xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true
-  RETVAL=$?
-  if [ $RETVAL -eq 0 ]; then
+  if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
     echo "Success"
     exit 0
   else
@@ -1340,9 +1350,7 @@ function ha-enable() {
 } #End function ha-enable
 
 function ha-disable() {
-  xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=false
-  RETVAL=$?
-  if [ $RETVAL -eq 0 ]; then
+  if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "false"; then
     echo "Success"
     exit 0
   else
@@ -1385,7 +1393,7 @@ set-quiet)
   ;;
 
 set-vm-ha)
-  set-vm-ha "$1" "$2" "$3" "$4"
+  set_vm_ha "$1" "$2" "$3" "$4"
   ;;
 
 get-vm-ha)

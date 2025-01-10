@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 #################################################################################################
 #
 # HA-Lizard - Open Source High Availability Framework for Xen Cloud Platform and XenServer
@@ -43,10 +44,9 @@ fi
 # Read in environment, override params
 # and function sources
 #######################################
-# shellcheck source=/dev/null
 source /etc/ha-lizard/ha-lizard.init #override configuration settings for this host - static for this host
-# shellcheck source=/dev/null
 source /usr/lib64/ha-lizard/ha-lizard.func
+source /usr/lib64/ha-lizard/common_functions.sh
 
 #######################################
 # Set any args passed in
@@ -240,7 +240,7 @@ if [ "$STATE" = "master" ]; then
   ## link tracking
   ###########################
 
-  MASTER_UUID=$($XE host-list hostname="$(hostname)" --minimal)
+  MASTER_UUID=$(xe_host_list hostname="$(hostname)")
   $XE host-param-set uuid="$MASTER_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"="master"
   #####################################
   ## Check MGT link state
@@ -318,8 +318,11 @@ if [ "$STATE" = "master" ]; then
 
   log "This host detected as pool  Master"
 
-  # Use 'grep -c' to directly count matching lines
-  NUM_HOSTS=$($XE host-list | grep -c "uuid ( RO)")
+  # Get the list of host UUIDs using the new xe_host_list function and mapfile
+  mapfile -t host_uuids < <(xe_host_list)
+
+  # Count the number of hosts
+  NUM_HOSTS=${#host_uuids[@]}
 
   # Check if the command succeeded and show the result
   if [ "$NUM_HOSTS" -gt 0 ]; then
@@ -593,13 +596,10 @@ if [[ $STATE == slave* ]]; then
                 RETVAL=$?
                 if [ $RETVAL -eq 0 ]; then
                   log "New Master ha_enabled check"
-                  POOL_UUID=$(xe pool-list --minimal)
-                  DB_HA_STATE=$(xe pool-param-get uuid="$POOL_UUID" param-name=other-config param-key=XenCenter.CustomFields."$XC_FIELD_NAME")
+                  DB_HA_STATE=$(xe_pool_other_param_get "XenCenter.CustomFields.$XC_FIELD_NAME")
                   if [ "$DB_HA_STATE" = "false" ]; then
                     log "This host just became master - re-enabling HA"
-                    xe pool-param-set uuid="$POOL_UUID" other-config:XenCenter.CustomFields."$XC_FIELD_NAME"=true
-                    RETVAL=$?
-                    if [ $RETVAL -eq 0 ]; then
+                    if xe_pool_other_param_set "XenCenter.CustomFields.$XC_FIELD_NAME" "true"; then
                       log "HA returned to enabled state"
                     else
                       log "Error returning HA to enabled state"
