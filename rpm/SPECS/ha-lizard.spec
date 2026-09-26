@@ -1,5 +1,5 @@
-%define version      2.4.4
-%define release      124
+%define version      __VERSION__
+%define release      __RELEASE__
 %define buildarch    noarch
 %define name         ha-lizard
 
