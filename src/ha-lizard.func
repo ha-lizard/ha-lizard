@@ -516,7 +516,7 @@ function check_xapi ()
 		##############################################################################
 		#Moved to CURL method for establishing HTTP socket connection version 1.6.42.3
 		##############################################################################
-		XAPI_RESP=$(curl --silent $1 | grep -c -E "Citrix|XCP")
+		XAPI_RESP=$(curl --silent $1 | grep -c -E "Citrix|XCP|Xen Orchestra|XO Lite")
 		log $FUNCNAME "Pool Host $1 xapi status = $XAPI_RESP"
 		if [ $XAPI_RESP -ge 1 ]
 			then
@@ -528,7 +528,7 @@ function check_xapi ()
 			## ** this ensures backward compatibility
 			##########################################
 			log $FUNCNAME: "HTTP check failed - attempting HTTPS"
-			XAPI_RESP=$(curl -k --silent https://${1} | grep -c -E "Citrix|XCP")
+			XAPI_RESP=$(curl -k --silent https://${1} | grep -c -E "Citrix|XCP|Xen Orchestra|XO Lite")
 			log $FUNCNAME "Pool Host $1 xapi status = $XAPI_RESP"
 			if [ $XAPI_RESP -ge 1 ]
 				then
