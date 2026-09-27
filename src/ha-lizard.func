@@ -643,7 +643,7 @@ function vm_mon ()
   case $OP_MODE in
 	1)
 		log $FUNCNAME "ha-lizard in operating mode 1 - managing pool appliances"
-		VAPP_LIST=$(($XE appliance-list | grep -e uuid | $AWK -F ": " '{print $2}'))
+		VAPP_LIST=($($XE appliance-list | grep -e uuid | $AWK -F ": " '{print $2}'))
 		VAPP_COUNT=${#VAPP_LIST[@]}
 		log $FUNCNAME "$VAPP_COUNT vapps found: ${VAPP_LIST[*]}"
 
@@ -800,7 +800,7 @@ function vm_mon ()
 						log $FUNCNAME "Host [ $start_on_this_host ] health status = [ $THIS_HOST_HEALTH ]"
 						if [ "$THIS_HOST_HEALTH" != "failed" ]
 						then
-							VM_START_RESULT=$((xe vm-start uuid=$j on=$start_on_this_host) 2>&1)
+							VM_START_RESULT=$(xe vm-start uuid=$j on=$start_on_this_host 2>&1)
 							RETVAL=$?
 							log $FUNCNAME "VM start exit result = [ $RETVAL ]"
 							log $FUNCNAME "VM start returned  messages = [ $VM_START_RESULT ]"
