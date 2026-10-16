@@ -2680,7 +2680,7 @@ function write_status_report() {
   echo "$final_report" >"$STATE_PATH"/status_report
 
   # Write the pool UUID to the pool_uuid file
-  echo "$pool_uuid" >"$STATE_PATH"/pool_uuid
+  echo "$POOL_UUID" >"$STATE_PATH"/pool_uuid
 }
 
 #######################################
